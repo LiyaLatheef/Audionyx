@@ -1,12 +1,22 @@
 """
 ML Inference Service for Deepfake Detection
 """
-try:
-    import tensorflow as tf
-    TF_AVAILABLE = True
-except Exception as e:
-    print(f"Warning: TensorFlow error ({e}). Running in demo mode.")
-    TF_AVAILABLE = False
+# Lazy import TensorFlow to avoid startup delays
+TF_AVAILABLE = False
+tf = None
+
+def _import_tensorflow():
+    """Lazy import TensorFlow when needed"""
+    global tf, TF_AVAILABLE
+    if tf is None:
+        try:
+            import tensorflow as tensorflow_module
+            tf = tensorflow_module
+            TF_AVAILABLE = True
+        except Exception as e:
+            print(f"Warning: TensorFlow error ({e}). Running in demo mode.")
+            TF_AVAILABLE = False
+    return TF_AVAILABLE
 
 try:
     import librosa
@@ -28,17 +38,18 @@ logger = logging.getLogger(__name__)
 class DeepfakeDetector:
     """Deepfake audio detection using pre-trained model"""
     
-    def __init__(self, model_path, sample_rate=16000, duration=2):
+    def __init__(self, model_path, sample_rate=22050, duration=2):
         self.model = None
         self.model_path = model_path
-        self.sample_rate = sample_rate
+        self.sample_rate = sample_rate  # 22050 Hz matches training
         self.duration = duration
         self.is_loaded = False
         
     def load_model(self):
         """Load the .h5 model"""
         try:
-            if not TF_AVAILABLE:
+            # Lazy import TensorFlow
+            if not _import_tensorflow():
                 logger.warning("TensorFlow not available, running in demo mode")
                 self.is_loaded = False
                 return False
@@ -63,47 +74,69 @@ class DeepfakeDetector:
     
     def preprocess_audio(self, audio_bytes):
         """
-        Convert audio blob to model input
-        Extracts MFCC features from audio
+        Convert audio blob to mel spectrogram (matches training pipeline)
+        Expected output shape: (1, 128, 87) for model input
         """
         try:
             if not LIBROSA_AVAILABLE:
                 raise ImportError("Librosa not available")
+            
+            if np is None:
+                raise ImportError("Numpy not available")
                 
-            # Load audio from bytes
-            audio, sr = librosa.load(
+            # Load audio from bytes (22050 Hz sample rate, 2 seconds)
+            audio_data, sample_rate = librosa.load(
                 BytesIO(audio_bytes),
                 sr=self.sample_rate,
                 duration=self.duration
             )
             
-            # Extract MFCC features (adjust n_mfcc based on your model)
-            mfcc = librosa.feature.mfcc(
-                y=audio,
-                sr=sr,
-                n_mfcc=40,
-                n_fft=2048,
-                hop_length=512
+            # Extract Mel Spectrogram (same as training)
+            mel_spectrogram = librosa.feature.melspectrogram(
+                y=audio_data, 
+                sr=sample_rate
             )
             
-            # Transpose to (time, features)
-            mfcc = mfcc.T
+            # Convert to decibels (same as training)
+            mel_decibel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
             
-            # Pad or truncate to fixed length (adjust based on your model)
-            target_length = 128
-            if mfcc.shape[0] < target_length:
-                pad_width = target_length - mfcc.shape[0]
-                mfcc = np.pad(mfcc, ((0, pad_width), (0, 0)), mode='constant')
-            else:
-                mfcc = mfcc[:target_length, :]
+            # Expected shape from training: (128, 87)
+            # mel_decibel_spectrogram shape is (n_mels, time_steps)
+            # Default n_mels=128, so we should get close to (128, 87) for 2-second audio
             
-            # Normalize features
-            mfcc = (mfcc - np.mean(mfcc)) / (np.std(mfcc) + 1e-8)
+            logger.debug(f"Mel spectrogram shape before padding: {mel_decibel_spectrogram.shape}")
             
-            # Add batch dimension
-            mfcc = np.expand_dims(mfcc, axis=0)
+            # Ensure shape matches training data (128, 87)
+            target_shape = (128, 87)
             
-            return mfcc
+            # Pad or truncate frequency bins (first dimension)
+            if mel_decibel_spectrogram.shape[0] < target_shape[0]:
+                pad_freq = target_shape[0] - mel_decibel_spectrogram.shape[0]
+                mel_decibel_spectrogram = np.pad(
+                    mel_decibel_spectrogram, 
+                    ((0, pad_freq), (0, 0)), 
+                    mode='constant'
+                )
+            elif mel_decibel_spectrogram.shape[0] > target_shape[0]:
+                mel_decibel_spectrogram = mel_decibel_spectrogram[:target_shape[0], :]
+            
+            # Pad or truncate time steps (second dimension)
+            if mel_decibel_spectrogram.shape[1] < target_shape[1]:
+                pad_time = target_shape[1] - mel_decibel_spectrogram.shape[1]
+                mel_decibel_spectrogram = np.pad(
+                    mel_decibel_spectrogram, 
+                    ((0, 0), (0, pad_time)), 
+                    mode='constant'
+                )
+            elif mel_decibel_spectrogram.shape[1] > target_shape[1]:
+                mel_decibel_spectrogram = mel_decibel_spectrogram[:, :target_shape[1]]
+            
+            logger.debug(f"Mel spectrogram shape after padding: {mel_decibel_spectrogram.shape}")
+            
+            # Add batch dimension: (1, 128, 87)
+            mel_spectrogram_input = np.expand_dims(mel_decibel_spectrogram, axis=0)
+            
+            return mel_spectrogram_input
             
         except Exception as e:
             logger.error(f"Error preprocessing audio: {str(e)}")

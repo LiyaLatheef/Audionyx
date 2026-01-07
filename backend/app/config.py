@@ -21,7 +21,7 @@ class Config:
     CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
     
     # ML Model
-    MODEL_PATH = os.getenv('MODEL_PATH', 'models/deepfake_detector.h5')
+    MODEL_PATH = os.getenv('MODEL_PATH', 'models/deepfake_audio_detector.h5')
     
     # Audio Processing
     SAMPLE_RATE = 16000

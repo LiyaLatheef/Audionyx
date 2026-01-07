@@ -48,7 +48,7 @@ Audionyx/
 │   │   │   └── socket_handler.py    # Socket.io events
 │   │   └── utils/
 │   ├── models/
-│   │   └── deepfake_detector.h5     # Your trained model (place here)
+│   │   └── deepfake_audio_detector.h5     # Your trained model (place here)
 │   ├── requirements.txt
 │   ├── run.py
 │   └── .env
@@ -139,7 +139,7 @@ pip install -r requirements.txt
 
 5. **Place your trained model:**
 ```
-Place your deepfake_detector.h5 file in: backend/models/deepfake_detector.h5
+Place your deepfake_audio_detector.h5 file in: backend/models/deepfake_audio_detector.h5
 ```
 
 **Important**: If you don't have a model yet, the system will run in **demo mode** with random predictions for testing purposes.
@@ -250,7 +250,7 @@ SECRET_KEY=your-secret-key-change-in-production
 JWT_SECRET_KEY=your-jwt-secret-change-in-production
 DATABASE_URI=sqlite:///audionyx.db
 CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-MODEL_PATH=models/deepfake_detector.h5
+MODEL_PATH=models/deepfake_audio_detector.h5
 ```
 
 ### Frontend Configuration (`frontend/.env`)
@@ -288,7 +288,7 @@ pip install -r requirements.txt
 ```
 
 **Issue**: `Error loading model`
-- **Solution**: Model is optional. System runs in demo mode. To use real model, place `deepfake_detector.h5` in `backend/models/`
+- **Solution**: Model is optional. System runs in demo mode. To use real model, place `deepfake_audio_detector.h5` in `backend/models/`
 
 **Issue**: `FFmpeg not found`
 - **Solution**: Install FFmpeg (see Prerequisites section)

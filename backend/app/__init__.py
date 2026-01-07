@@ -8,6 +8,9 @@ from flask_jwt_extended import JWTManager
 from flask_cors import CORS
 from flask_socketio import SocketIO
 import os
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Initialize extensions
 db = SQLAlchemy()
@@ -48,9 +51,10 @@ def create_app(config_name='default'):
     with app.app_context():
         db.create_all()
         
-        # Initialize ML model
-        from app.services.ml_inference import init_model
-        init_model(app.config['MODEL_PATH'])
+        # Initialize ML model (temporarily disabled - demo mode)
+        # from app.services.ml_inference import init_model
+        # init_model(app.config['MODEL_PATH'])
+        logger.info("Running in demo mode - TensorFlow model loading temporarily disabled")
     
     @app.route('/')
     def index():
