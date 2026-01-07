@@ -1,0 +1,49 @@
+"""
+Application Configuration
+"""
+import os
+from datetime import timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
+
+class Config:
+    """Base configuration"""
+    SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'dev-jwt-secret-key')
+    JWT_ACCESS_TOKEN_EXPIRES = timedelta(hours=24)
+    
+    # Database
+    SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URI', 'sqlite:///audionyx.db')
+    SQLALCHEMY_TRACK_MODIFICATIONS = False
+    
+    # CORS
+    CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
+    
+    # ML Model
+    MODEL_PATH = os.getenv('MODEL_PATH', 'models/deepfake_detector.h5')
+    
+    # Audio Processing
+    SAMPLE_RATE = 16000
+    AUDIO_DURATION = 2  # seconds
+    CHUNK_SIZE = 2000  # milliseconds
+    
+    # Socket.io
+    SOCKETIO_CORS_ALLOWED_ORIGINS = CORS_ORIGINS
+    SOCKETIO_ASYNC_MODE = 'eventlet'
+
+class DevelopmentConfig(Config):
+    """Development configuration"""
+    DEBUG = True
+    FLASK_ENV = 'development'
+
+class ProductionConfig(Config):
+    """Production configuration"""
+    DEBUG = False
+    FLASK_ENV = 'production'
+
+config = {
+    'development': DevelopmentConfig,
+    'production': ProductionConfig,
+    'default': DevelopmentConfig
+}
