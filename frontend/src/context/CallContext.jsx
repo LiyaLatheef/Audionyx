@@ -34,10 +34,15 @@ export const CallProvider = ({ children }) => {
 
       // Listen for online users updates
       sock.on('online_users', (data) => {
-        setOnlineUsers(data.users)
+        // Filter out current user from online users list
+        const filteredUsers = data.users.filter(u => u.id !== user.id)
+        setOnlineUsers(filteredUsers)
       })
 
       sock.on('user_online', (data) => {
+        // Don't add current user to online users list
+        if (data.user_id === user.id) return
+        
         setOnlineUsers(prev => {
           const exists = prev.find(u => u.id === data.user_id)
           if (!exists && data.user) {

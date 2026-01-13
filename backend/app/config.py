@@ -20,8 +20,9 @@ class Config:
     # CORS
     CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
     
-    # ML Model
-    MODEL_PATH = os.getenv('MODEL_PATH', 'models/deepfake_audio_detector.h5')
+    # ML Model configuration
+    BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    MODEL_PATH = os.getenv('MODEL_PATH', 'models/deepfake_audio_detector_v2.h5')
     
     # Audio Processing
     SAMPLE_RATE = 16000
@@ -30,7 +31,7 @@ class Config:
     
     # Socket.io
     SOCKETIO_CORS_ALLOWED_ORIGINS = CORS_ORIGINS
-    SOCKETIO_ASYNC_MODE = 'eventlet'
+    SOCKETIO_ASYNC_MODE = None  # Auto-detect best async mode
 
 class DevelopmentConfig(Config):
     """Development configuration"""

@@ -105,6 +105,8 @@ def handle_call_user(data):
         caller_id = data.get('caller_id')
         callee_id = data.get('callee_id')
         
+        logger.info(f"Call request from {caller_id} to {callee_id}")
+        
         if not caller_id or not callee_id:
             emit('error', {'message': 'Caller and callee IDs required'})
             return
@@ -113,6 +115,8 @@ def handle_call_user(data):
         callee_sid = user_sessions.get(callee_id)
         
         if not callee_sid:
+            logger.warning(f"Callee {callee_id} not found in user_sessions")
+            logger.info(f"Active sessions: {list(user_sessions.keys())}")
             emit('call_failed', {'message': 'User is not online'})
             return
         
@@ -130,6 +134,8 @@ def handle_call_user(data):
         
         # Get caller info
         caller = User.query.get(caller_id)
+        
+        logger.info(f"Sending incoming_call to callee sid: {callee_sid}")
         
         # Notify callee
         emit('incoming_call', {
@@ -156,19 +162,14 @@ def handle_call_accepted(data):
         
         call_data = active_calls[call_id]
         
-        # Create room for call
-        join_room(call_id)
+        # Both caller and callee join the room
+        join_room(call_id, sid=call_data['caller_sid'])
+        join_room(call_id, sid=call_data['callee_sid'])
         
-        # Notify caller
+        # Notify caller that call was accepted
         emit('call_accepted', {
             'call_id': call_id
         }, room=call_data['caller_sid'])
-        
-        # Notify both users that call started
-        emit('call_started', {
-            'call_id': call_id,
-            'participants': [call_data['caller_id'], call_data['callee_id']]
-        }, room=call_id)
         
         logger.info(f"Call accepted: {call_id}")
         
@@ -211,19 +212,21 @@ def handle_end_call(data):
         
         call_data = active_calls[call_id]
         
-        # Notify both users
+        # Notify both users individually
         emit('call_ended', {
             'call_id': call_id,
             'reason': 'user_ended'
-        }, room=call_id)
+        }, room=call_data['caller_sid'])
         
-        # Leave room
-        leave_room(call_id)
+        emit('call_ended', {
+            'call_id': call_id,
+            'reason': 'user_ended'
+        }, room=call_data['callee_sid'])
         
         # Remove call
         del active_calls[call_id]
         
-        logger.info(f"Call ended: {call_id}")
+        logger.info(f"Call ended: {call_id}, notified both users")
         
     except Exception as e:
         logger.error(f"Error in end_call: {str(e)}")
@@ -332,22 +335,30 @@ def handle_audio_chunk(data):
             logger.warning(f"Invalid audio chunk: {message}")
             return
         
+        logger.info(f"Processing audio chunk for call {call_id}, analyzing audio from user {sender_id}")
+        
         # Run ML inference
         detector = get_detector()
         result = detector.predict(audio_bytes)
         
-        # Emit result to both users in the call
+        logger.info(f"Deepfake detection completed: {result}")
+        
+        # Send result ONLY to the person who submitted the audio chunk
+        # (the person receiving the audio, not the sender)
+        # This ensures one-way detection: receiver checks if sender's audio is fake
         emit('deepfake_result', {
             'call_id': call_id,
             'sender_id': sender_id,
             'result': result,
             'timestamp': time.time()
-        }, room=call_id)
+        }, room=request.sid)
         
-        logger.info(f"Deepfake detection result: {result}")
+        logger.info(f"Deepfake result sent to analyzer (not to audio sender)")
         
     except Exception as e:
         logger.error(f"Error processing audio chunk: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         emit('error', {
             'message': 'Error processing audio',
             'details': str(e)

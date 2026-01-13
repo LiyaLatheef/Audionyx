@@ -48,26 +48,34 @@ class DeepfakeDetector:
     def load_model(self):
         """Load the .h5 model"""
         try:
+            print(f"[ML_INFERENCE] Attempting to load model from: {self.model_path}")
+            
             # Lazy import TensorFlow
             if not _import_tensorflow():
                 logger.warning("TensorFlow not available, running in demo mode")
+                print("[ML_INFERENCE] TensorFlow not available - demo mode")
                 self.is_loaded = False
                 return False
                 
             if not os.path.exists(self.model_path):
                 logger.warning(f"Model file not found at {self.model_path}")
                 logger.info("Model will operate in demo mode (random predictions)")
+                print(f"[ML_INFERENCE] Model file not found at {self.model_path} - demo mode")
                 self.is_loaded = False
                 return False
             
             logger.info(f"Loading model from {self.model_path}")
-            self.model = tf.keras.models.load_model(self.model_path)
+            print(f"[ML_INFERENCE] Loading model...")
+            # Load without compilation (we only need inference)
+            self.model = tf.keras.models.load_model(self.model_path, compile=False)
             self.is_loaded = True
-            logger.info("Model loaded successfully")
+            logger.info(f"✓ Model loaded successfully! Ready for real deepfake detection.")
+            print(f"[ML_INFERENCE] ✓ MODEL LOADED SUCCESSFULLY! Real detection enabled.")
             return True
             
         except Exception as e:
             logger.error(f"Error loading model: {str(e)}")
+            print(f"[ML_INFERENCE] Error loading model: {str(e)} - demo mode")
             logger.info("Model will operate in demo mode")
             self.is_loaded = False
             return False
@@ -200,6 +208,12 @@ _detector = None
 def init_model(model_path):
     """Initialize the global detector instance"""
     global _detector
+    # Ensure absolute path
+    import os
+    if not os.path.isabs(model_path):
+        # Relative path - convert to absolute from backend directory
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        model_path = os.path.join(backend_dir, model_path)
     _detector = DeepfakeDetector(model_path)
     _detector.load_model()
     return _detector

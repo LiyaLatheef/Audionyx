@@ -51,10 +51,13 @@ def create_app(config_name='default'):
     with app.app_context():
         db.create_all()
         
-        # Initialize ML model (temporarily disabled - demo mode)
-        # from app.services.ml_inference import init_model
-        # init_model(app.config['MODEL_PATH'])
-        logger.info("Running in demo mode - TensorFlow model loading temporarily disabled")
+        # Initialize ML model
+        from app.services.ml_inference import init_model
+        model_loaded = init_model(app.config['MODEL_PATH'])
+        if model_loaded:
+            logger.info("ML model loaded successfully")
+        else:
+            logger.warning("Running in demo mode - model not loaded")
     
     @app.route('/')
     def index():

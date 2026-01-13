@@ -13,13 +13,15 @@ const CallInterface = ({ remoteUser }) => {
     remoteStream, 
     endCall, 
     callId,
-    socket
+    socket,
+    isCaller // Get caller status
   } = useCall()
 
   const localAudioRef = useRef(null)
   const remoteAudioRef = useRef(null)
 
   // Start audio processing for deepfake detection
+  // Pass the remote user's ID as sender_id so backend knows who sent the audio
   useAudioProcessing(socket, remoteStream, callId, remoteUser?.id)
 
   // Set up audio elements
@@ -67,8 +69,21 @@ const CallInterface = ({ remoteUser }) => {
           </div>
         </div>
 
-        {/* Deepfake Detection Results */}
-        <DeepfakeIndicator />
+        {/* Deepfake Detection Results - Only show to callee (person who received the call) */}
+        {!isCaller && <DeepfakeIndicator />}
+        
+        {/* Show message to caller */}
+        {isCaller && (
+          <div className="caller-message" style={{
+            padding: '20px',
+            textAlign: 'center',
+            backgroundColor: '#f0f0f0',
+            borderRadius: '8px',
+            margin: '20px 0'
+          }}>
+            <p>You initiated this call. The other person can verify your audio authenticity.</p>
+          </div>
+        )}
       </div>
 
       <div className="call-controls">

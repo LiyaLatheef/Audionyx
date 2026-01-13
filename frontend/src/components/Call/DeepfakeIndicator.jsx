@@ -4,12 +4,13 @@ import { DEEPFAKE_THRESHOLDS } from '../../config'
 import './DeepfakeIndicator.css'
 
 const DeepfakeIndicator = () => {
-  const { deepfakeResults } = useCall()
+  const { deepfakeResults, socket, callId, remoteStream } = useCall()
   const [latestResult, setLatestResult] = useState(null)
 
   useEffect(() => {
     if (deepfakeResults.length > 0) {
       setLatestResult(deepfakeResults[deepfakeResults.length - 1])
+      console.log('Deepfake results updated:', deepfakeResults.length, 'total results')
     }
   }, [deepfakeResults])
 
@@ -40,6 +41,7 @@ const DeepfakeIndicator = () => {
   return (
     <div className="deepfake-indicator">
       <h3>Deepfake Detection</h3>
+      <p className="detection-info">Analyzing remote audio for authenticity</p>
       
       {latestResult ? (
         <div className="detection-result">
@@ -89,6 +91,11 @@ const DeepfakeIndicator = () => {
       ) : (
         <div className="no-results">
           <p>Waiting for audio data...</p>
+          <div className="status-info">
+            <small>Socket: {socket?.connected ? '✓ Connected' : '✗ Disconnected'}</small><br/>
+            <small>Call ID: {callId || 'Not set'}</small><br/>
+            <small>Remote Stream: {remoteStream ? '✓ Active' : '✗ Inactive'}</small>
+          </div>
           <div className="loader"></div>
         </div>
       )}

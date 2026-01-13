@@ -47,12 +47,12 @@ def convert_webm_to_wav(webm_bytes):
         logger.error(f"Error converting audio format: {str(e)}")
         raise
 
-def validate_audio_chunk(audio_bytes, min_size=1000):
+def validate_audio_chunk(audio_bytes, min_size=200):
     """Validate audio chunk size and format"""
     if not audio_bytes:
         return False, "Audio chunk is empty"
     
     if len(audio_bytes) < min_size:
-        return False, f"Audio chunk too small: {len(audio_bytes)} bytes"
+        return False, f"Audio chunk too small: {len(audio_bytes)} bytes (min: {min_size} bytes)"
     
     return True, "Valid"

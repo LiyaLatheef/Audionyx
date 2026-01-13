@@ -7,10 +7,18 @@ export const useAudioProcessing = (socket, remoteStream, callId, senderId) => {
 
   const startProcessing = useCallback(() => {
     if (!socket || !remoteStream || !callId || isProcessingRef.current) {
+      console.log('Cannot start audio processing:', {
+        hasSocket: !!socket,
+        hasRemoteStream: !!remoteStream,
+        hasCallId: !!callId,
+        isProcessing: isProcessingRef.current
+      })
       return
     }
 
     try {
+      console.log('Starting audio processing for call:', callId)
+      
       // Create MediaRecorder with remote stream
       const mediaRecorder = new MediaRecorder(remoteStream, {
         mimeType: AUDIO_CONFIG.MIME_TYPE,
@@ -19,11 +27,14 @@ export const useAudioProcessing = (socket, remoteStream, callId, senderId) => {
 
       mediaRecorder.ondataavailable = async (event) => {
         if (event.data.size > 0 && socket) {
+          console.log('Audio chunk captured:', event.data.size, 'bytes')
+          
           // Convert blob to base64
           const reader = new FileReader()
           reader.onloadend = () => {
             const base64data = reader.result
             
+            console.log('Sending audio chunk to backend for call:', callId)
             // Send audio chunk to backend
             socket.emit('audio_chunk', {
               call_id: callId,
