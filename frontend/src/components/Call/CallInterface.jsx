@@ -22,7 +22,12 @@ const CallInterface = ({ remoteUser }) => {
 
   // Start audio processing for deepfake detection
   // Pass the remote user's ID as sender_id so backend knows who sent the audio
-  useAudioProcessing(socket, remoteStream, callId, remoteUser?.id)
+  useAudioProcessing(
+    socket,
+    isCaller ? null : remoteStream,
+    isCaller ? null : callId,
+    isCaller ? null : remoteUser?.id
+  )
 
   // Set up audio elements
   useEffect(() => {
@@ -54,20 +59,22 @@ const CallInterface = ({ remoteUser }) => {
         <audio ref={localAudioRef} autoPlay playsInline />
         <audio ref={remoteAudioRef} autoPlay playsInline />
 
-        {/* Audio Visualizers */}
-        <div className="audio-section">
-          <div className="audio-card">
-            <h3>Your Audio</h3>
-            <AudioVisualizer stream={localStream} color="#739EBD" />
-            <p className="audio-label">{user?.username}</p>
-          </div>
+        {/* Audio Visualizers - Only show to callee (receiver) */}
+        {!isCaller && (
+          <div className="audio-section">
+            <div className="audio-card">
+              <h3>Your Audio</h3>
+              <AudioVisualizer stream={localStream} color="#739EBD" />
+              <p className="audio-label">{user?.username}</p>
+            </div>
 
-          <div className="audio-card">
-            <h3>Remote Audio</h3>
-            <AudioVisualizer stream={remoteStream} color="#4E6B8A" />
-            <p className="audio-label">{remoteUser?.username || 'User'}</p>
+            <div className="audio-card">
+              <h3>Remote Audio</h3>
+              <AudioVisualizer stream={remoteStream} color="#4E6B8A" />
+              <p className="audio-label">{remoteUser?.username || 'User'}</p>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Deepfake Detection Results - Only show to callee (person who received the call) */}
         {!isCaller && <DeepfakeIndicator />}
