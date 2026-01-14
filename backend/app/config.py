@@ -22,8 +22,8 @@ class Config:
     
     # ML Model configuration
     BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
-    # Default matches README and expected local placement.
-    MODEL_PATH = os.getenv('MODEL_PATH', 'models/deepfake_audio_detector.h5')
+    # Default to the latest local model if present.
+    MODEL_PATH = os.getenv('MODEL_PATH', 'models/audionyx_model1.pth')
     
     # Audio Processing
     SAMPLE_RATE = 16000

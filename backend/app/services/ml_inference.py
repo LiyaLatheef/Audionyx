@@ -32,6 +32,7 @@ except Exception:
 import os
 from io import BytesIO
 import logging
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,12 @@ class DeepfakeDetector:
         """Load the .h5 model"""
         try:
             print(f"[ML_INFERENCE] Attempting to load model from: {self.model_path}")
+
+            _, ext = os.path.splitext(self.model_path)
+            ext = ext.lower()
+
+            if ext in {'.pt', '.pth'}:
+                return self._load_torch_model()
             
             # Lazy import TensorFlow
             if not _import_tensorflow():
@@ -79,6 +86,80 @@ class DeepfakeDetector:
             logger.info("Model will operate in demo mode")
             self.is_loaded = False
             return False
+
+    def _load_torch_model(self):
+        """Load a PyTorch model (.pt TorchScript or .pth checkpoint/state_dict)."""
+        try:
+            import torch
+            import torch.nn as nn
+        except Exception as e:
+            logger.warning(f"PyTorch not available ({e}), running in demo mode")
+            print(f"[ML_INFERENCE] PyTorch not available ({e}) - demo mode")
+            self.is_loaded = False
+            return False
+
+        if not os.path.exists(self.model_path):
+            logger.warning(f"Model file not found at {self.model_path}")
+            print(f"[ML_INFERENCE] Model file not found at {self.model_path} - demo mode")
+            self.is_loaded = False
+            return False
+
+        # Prefer TorchScript when possible.
+        try:
+            scripted = torch.jit.load(self.model_path, map_location='cpu')
+            scripted.eval()
+            self.model = scripted
+            self.is_loaded = True
+            logger.info("✓ TorchScript model loaded successfully")
+            print("[ML_INFERENCE] ✓ TORCHSCRIPT MODEL LOADED SUCCESSFULLY! Real detection enabled.")
+            return True
+        except Exception:
+            pass
+
+        # Otherwise try torch.load (common for .pth checkpoints).
+        obj = torch.load(self.model_path, map_location='cpu')
+
+        # If a full nn.Module was saved, we can use it directly.
+        if isinstance(obj, nn.Module):
+            obj.eval()
+            self.model = obj
+            self.is_loaded = True
+            logger.info("✓ PyTorch nn.Module loaded successfully")
+            print("[ML_INFERENCE] ✓ PYTORCH MODEL LOADED SUCCESSFULLY! Real detection enabled.")
+            return True
+
+        # If a state_dict was saved, we need the model architecture to reconstruct the module.
+        if isinstance(obj, (dict, OrderedDict)):
+            state_dict = obj
+            if isinstance(obj, dict) and 'state_dict' in obj and isinstance(obj['state_dict'], (dict, OrderedDict)):
+                state_dict = obj['state_dict']
+
+            try:
+                from app.services.torch_model import build_model  # type: ignore
+                model = build_model(state_dict)
+                model.load_state_dict(state_dict, strict=True)
+                model.eval()
+                self.model = model
+                self.is_loaded = True
+                logger.info("✓ PyTorch model rebuilt from state_dict successfully")
+                print("[ML_INFERENCE] ✓ PYTORCH MODEL (STATE_DICT) LOADED SUCCESSFULLY! Real detection enabled.")
+                return True
+            except Exception as e:
+                logger.error(
+                    "PyTorch checkpoint appears to be a state_dict, but no compatible model definition was provided. "
+                    "Add app.services.torch_model.build_model(state_dict) or export a TorchScript .pt file. "
+                    f"Error: {e}"
+                )
+                print(
+                    "[ML_INFERENCE] PyTorch .pth is a state_dict; need model architecture to load. "
+                    "Provide app/services/torch_model.py (build_model) or export TorchScript (.pt). Demo mode."
+                )
+                self.is_loaded = False
+                return False
+
+        logger.error(f"Unsupported PyTorch checkpoint type: {type(obj)}")
+        self.is_loaded = False
+        return False
     
     def preprocess_audio(self, audio_bytes):
         """
@@ -220,6 +301,7 @@ def init_model(model_path):
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         models_dir = os.path.join(backend_dir, 'models')
         candidate_paths = [
+            os.path.join(models_dir, 'audionyx_model1.pth'),
             os.path.join(models_dir, 'deepfake_audio_detector.h5'),
             os.path.join(models_dir, 'deepfake_audio_detector_v2.h5'),
         ]
