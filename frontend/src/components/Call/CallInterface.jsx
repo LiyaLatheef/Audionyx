@@ -58,13 +58,13 @@ const CallInterface = ({ remoteUser }) => {
         <div className="audio-section">
           <div className="audio-card">
             <h3>Your Audio</h3>
-            <AudioVisualizer stream={localStream} color="#667eea" />
+            <AudioVisualizer stream={localStream} color="#739EBD" />
             <p className="audio-label">{user?.username}</p>
           </div>
 
           <div className="audio-card">
             <h3>Remote Audio</h3>
-            <AudioVisualizer stream={remoteStream} color="#764ba2" />
+            <AudioVisualizer stream={remoteStream} color="#4E6B8A" />
             <p className="audio-label">{remoteUser?.username || 'User'}</p>
           </div>
         </div>

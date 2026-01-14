@@ -39,7 +39,7 @@ const Register = () => {
   }
 
   return (
-    <div className="auth-container">
+    <div className="auth-container auth-container--register">
       <div className="auth-card">
         <div className="auth-header">
           <h1>Audionyx</h1>

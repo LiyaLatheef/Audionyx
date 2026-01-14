@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 
-const AudioVisualizer = ({ stream, color = '#667eea' }) => {
+const AudioVisualizer = ({ stream, color = '#739EBD' }) => {
   const canvasRef = useRef(null)
   const animationRef = useRef(null)
   const analyserRef = useRef(null)
