@@ -1,14 +1,42 @@
 .dashboard-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #739EBD 0%, #4E6B8A 100%);
+  position: relative;
+  background: #eef2f3;
 }
 
 .dashboard-header {
-  background: rgba(255, 255, 255, 0.15);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  background: linear-gradient(
+    135deg,
+    rgba(115, 158, 189, 0.42) 0%,
+    rgba(115, 158, 189, 0.26) 100%
+  );
+  border-bottom: 1px solid rgba(115, 158, 189, 0.35);
   padding: 20px 0;
+}
+
+.dashboard-header::before {
+  content: '';
+  position: absolute;
+  inset: -140px;
+  background: url('../../assets/wave-lines.svg') center / 1600px 900px no-repeat;
+  opacity: 0.5;
+  filter: contrast(1.2) saturate(1.05);
+  pointer-events: none;
+}
+
+.dashboard-header::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    900px 500px at 15% 25%,
+    rgba(255, 255, 255, 0.35),
+    rgba(255, 255, 255, 0) 60%
+  );
+  pointer-events: none;
 }
 
 .header-content {
@@ -18,10 +46,12 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  position: relative;
+  z-index: 1;
 }
 
 .dashboard-header h1 {
-  color: white;
+  color: #244154;
   font-size: 2rem;
   font-weight: 700;
   margin: 0;
@@ -34,16 +64,16 @@
 }
 
 .username {
-  color: white;
+  color: #244154;
   font-weight: 600;
   font-size: 1.1rem;
 }
 
 .btn-logout {
   padding: 10px 20px;
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 2px solid white;
+  background: rgba(255, 255, 255, 0.75);
+  color: #244154;
+  border: 2px solid rgba(115, 158, 189, 0.55);
   border-radius: 8px;
   cursor: pointer;
   font-weight: 600;
@@ -51,18 +81,20 @@
 }
 
 .btn-logout:hover {
-  background: white;
-  color: #739EBD;
+  background: #739EBD;
+  color: #ffffff;
 }
 
 .dashboard-content {
+  position: relative;
+  z-index: 1;
   max-width: 1200px;
   margin: 0 auto;
   padding: 40px 30px;
 }
 
 .users-section h2 {
-  color: white;
+  color: #244154;
   margin-bottom: 30px;
   font-size: 1.8rem;
 }
@@ -112,7 +144,7 @@
   width: 60px;
   height: 60px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #739EBD 0%, #4E6B8A 100%);
+  background: linear-gradient(135deg, #779ab3 0%, #8ee2f3 100%);
   display: flex;
   align-items: center;
   justify-content: center;
