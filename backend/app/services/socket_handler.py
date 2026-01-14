@@ -10,12 +10,107 @@ from app.services.audio_processor import base64_to_bytes, convert_webm_to_wav, v
 import time
 import logging
 from datetime import datetime
+from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
 # Active connections and calls
 user_sessions = {}  # {user_id: socket_id}
 active_calls = {}   # {call_id: {'caller_id': X, 'callee_id': Y, 'start_time': T}}
+
+# Per-call fraud scoring state: we aggregate the first ~10 seconds (5 chunks) of incoming audio
+# and compute a combined probability.
+_fraud_windows = {}  # {(call_id, sender_id, analyzer_sid): {'probs': [..], 'done': bool, 'combined': float, ...}}
+
+
+def _median(values):
+    if not values:
+        return 0.0
+    vals = sorted(float(v) for v in values)
+    n = len(vals)
+    mid = n // 2
+    if n % 2:
+        return float(vals[mid])
+    return float((vals[mid - 1] + vals[mid]) / 2.0)
+
+
+def _stable_update(state, new_score, history_len=5, high_threshold=0.85, low_threshold=0.60):
+    """Port of audx_model.StableDecisionMaker (median smoothing + hysteresis)."""
+    history = state.get('score_history')
+    if not isinstance(history, list):
+        history = []
+        state['score_history'] = history
+
+    history.append(float(new_score))
+    if len(history) > int(history_len):
+        del history[:-int(history_len)]
+
+    smoothed = _median(history)
+    current_state = state.get('stable_state') or 'SAFE'
+    if current_state == 'SAFE':
+        if smoothed > float(high_threshold):
+            current_state = 'THREAT'
+    else:
+        if smoothed < float(low_threshold):
+            current_state = 'SAFE'
+
+    state['stable_state'] = current_state
+    state['smoothed_confidence'] = float(smoothed)
+    return current_state, float(smoothed)
+
+
+def _append_context_audio(state, audio_bytes, target_sr=16000, context_sec=4.0):
+    """Maintain a rolling mono float32 buffer of the last `context_sec` seconds."""
+    try:
+        import numpy as np
+        import soundfile as sf
+        import librosa
+    except Exception:
+        return None
+
+    try:
+        audio_np, sr = sf.read(BytesIO(audio_bytes), dtype='float32', always_2d=True)
+        audio_np = audio_np.mean(axis=1)
+    except Exception:
+        return None
+
+    try:
+        if int(sr) != int(target_sr):
+            audio_np = librosa.resample(audio_np, orig_sr=int(sr), target_sr=int(target_sr)).astype('float32')
+    except Exception:
+        # If resample fails, keep original samples.
+        pass
+
+    buf = state.get('pcm_buf')
+    if buf is None:
+        buf = np.array([], dtype='float32')
+
+    try:
+        buf = np.concatenate([buf, audio_np.astype('float32')])
+    except Exception:
+        return None
+
+    max_len = int(float(context_sec) * float(target_sr))
+    if max_len > 0 and buf.shape[0] > max_len:
+        buf = buf[-max_len:]
+
+    state['pcm_buf'] = buf
+    return buf
+
+
+def _encode_wav_bytes(pcm_float32, sample_rate=16000):
+    """Encode float32 mono PCM into a PCM16 WAV bytes payload."""
+    try:
+        import soundfile as sf
+    except Exception:
+        return None
+
+    bio = BytesIO()
+    try:
+        sf.write(bio, pcm_float32, int(sample_rate), format='WAV', subtype='PCM_16')
+        return bio.getvalue()
+    except Exception:
+        return None
 
 @socketio.on('connect')
 def handle_connect():
@@ -57,6 +152,11 @@ def handle_disconnect():
                     emit('call_ended', {'call_id': call_id, 'reason': 'peer_disconnected'}, room=other_sid)
                 
                 del active_calls[call_id]
+
+        # Clear any fraud windows associated with this disconnected sid
+        for key in list(_fraud_windows.keys()):
+            if key[2] == request.sid:
+                del _fraud_windows[key]
 
 @socketio.on('user_online')
 def handle_user_online(data):
@@ -233,6 +333,11 @@ def handle_end_call(data):
         
         # Remove call
         del active_calls[call_id]
+
+        # Clear fraud aggregation state for this call
+        for key in list(_fraud_windows.keys()):
+            if key[0] == call_id:
+                del _fraud_windows[key]
         
         logger.info(f"Call ended: {call_id}, notified both users")
         
@@ -325,50 +430,250 @@ def handle_audio_chunk(data):
         
         if not call_id or call_id not in active_calls:
             logger.warning(f"Received audio for invalid call: {call_id}")
+            emit('deepfake_result', {
+                'call_id': call_id,
+                'sender_id': sender_id,
+                'result': {
+                    'status': 'error',
+                    'message': 'Invalid or unknown call_id (server has no active call state).',
+                    'is_deepfake': False,
+                    'confidence': 0.0
+                },
+                'timestamp': time.time()
+            }, room=request.sid)
             return
         
         if not audio_data:
             logger.warning("Received empty audio chunk")
             return
         
+        declared_mime = None
+        if isinstance(audio_data, str) and audio_data.startswith('data:'):
+            # Example: data:audio/wav;base64,<...>
+            try:
+                declared_mime = audio_data.split(';', 1)[0][5:]
+            except Exception:
+                declared_mime = None
+
         # Convert base64 to bytes if necessary
         if isinstance(audio_data, str):
             audio_bytes = base64_to_bytes(audio_data)
         else:
             audio_bytes = audio_data
 
-        # Convert browser-recorded WebM/Opus into WAV for librosa/tensorflow pipeline.
-        # This requires ffmpeg and is essential for real model inference.
+        # Convert browser-recorded WebM/Opus into WAV for librosa/model pipeline.
+        # If the browser already sent WAV bytes, skip conversion (no FFmpeg required).
         detector = get_detector()
-        try:
-            audio_bytes = convert_webm_to_wav(audio_bytes, target_sample_rate=detector.sample_rate)
-        except Exception as e:
-            logger.warning(f"WebM->WAV conversion failed ({e}); attempting inference on raw bytes")
+
+        head = b''
+        if isinstance(audio_bytes, (bytes, bytearray)):
+            head = bytes(audio_bytes[:16])
+
+        is_wav_header = (
+            isinstance(audio_bytes, (bytes, bytearray))
+            and len(audio_bytes) >= 12
+            and audio_bytes[0:4] == b'RIFF'
+            and audio_bytes[8:12] == b'WAVE'
+        )
+        is_webm_header = (
+            isinstance(audio_bytes, (bytes, bytearray))
+            and len(audio_bytes) >= 4
+            and audio_bytes[0:4] == b'\x1a\x45\xdf\xa3'  # EBML (WebM/Matroska)
+        )
+
+        declared_wav = declared_mime in {'audio/wav', 'audio/x-wav', 'audio/wave'}
+        is_wav = bool(is_wav_header or declared_wav)
+
+        if not is_wav:
+            try:
+                audio_bytes = convert_webm_to_wav(audio_bytes, target_sample_rate=detector.sample_rate)
+            except Exception as e:
+                detected = 'unknown'
+                if is_webm_header:
+                    detected = 'webm/ebml'
+                elif is_wav_header:
+                    detected = 'wav'
+                msg = (
+                    f"WebM->WAV conversion failed: {e} "
+                    f"(declared_mime={declared_mime}, detected={detected}, head={head.hex()})"
+                )
+                logger.warning(msg)
+                emit('deepfake_result', {
+                    'call_id': call_id,
+                    'sender_id': sender_id,
+                    'result': {
+                        'status': 'error',
+                        'message': msg,
+                        'is_deepfake': False,
+                        'confidence': 0.0
+                    },
+                    'timestamp': time.time()
+                }, room=request.sid)
+                return
+
+        # If the browser claims it sent WAV but the header doesn't match, surface that clearly.
+        if declared_wav and not is_wav_header:
+            msg = f"Audio declared as WAV but RIFF/WAVE header not found (head={head.hex()})"
+            logger.warning(msg)
+            emit('deepfake_result', {
+                'call_id': call_id,
+                'sender_id': sender_id,
+                'result': {
+                    'status': 'error',
+                    'message': msg,
+                    'is_deepfake': False,
+                    'confidence': 0.0
+                },
+                'timestamp': time.time()
+            }, room=request.sid)
+            return
         
         # Validate audio chunk
         is_valid, message = validate_audio_chunk(audio_bytes)
         if not is_valid:
             logger.warning(f"Invalid audio chunk: {message}")
+            emit('deepfake_result', {
+                'call_id': call_id,
+                'sender_id': sender_id,
+                'result': {
+                    'status': 'error',
+                    'message': message,
+                    'is_deepfake': False,
+                    'confidence': 0.0
+                },
+                'timestamp': time.time()
+            }, room=request.sid)
             return
         
-        logger.info(f"Processing audio chunk for call {call_id}, analyzing audio from user {sender_id}")
+        analyzer_sid = request.sid
+        window_key = (call_id, sender_id, analyzer_sid)
+        window = _fraud_windows.get(window_key)
+        if window is None:
+            window = {
+                'probs': [],
+                'done': False,
+                'combined': 0.0,
+                # Stable decision state
+                'score_history': [],
+                'stable_state': 'SAFE',
+                'smoothed_confidence': 0.0,
+                # Rolling PCM context buffer (for 4s model windows)
+                'pcm_buf': None,
+            }
+            _fraud_windows[window_key] = window
 
-        # Run ML inference
-        result = detector.predict(audio_bytes)
-        
-        logger.info(f"Deepfake detection completed: {result}")
-        
-        # Send result ONLY to the person who submitted the audio chunk
-        # (the person receiving the audio, not the sender)
-        # This ensures one-way detection: receiver checks if sender's audio is fake
+        # We only score the first 10 seconds (~5 chunks if the frontend uses 2s chunks).
+        segments_total = 5
+
+        if window.get('done'):
+            # Already finalized: keep returning the stable combined result.
+            emit('deepfake_result', {
+                'call_id': call_id,
+                'sender_id': sender_id,
+                'result': {
+                    'status': 'success',
+                    'mode': 'model',
+                    'is_deepfake': bool((window.get('stable_state') or 'SAFE') == 'THREAT'),
+                    'confidence': float(window['combined']),
+                    'confidence_smoothed': float(window.get('smoothed_confidence', window['combined'])),
+                    'stable_state': window.get('stable_state', 'SAFE'),
+                    'segments_total': segments_total,
+                    'segments_scored': segments_total,
+                    'segment_confidences': list(window['probs']),
+                    'finalized': True,
+                },
+                'timestamp': time.time(),
+            }, room=analyzer_sid)
+            return
+
+        # Run ML inference for this segment
+        logger.info(
+            f"Processing audio chunk for call {call_id}, analyzing incoming audio from user {sender_id} "
+            f"(segment {len(window['probs']) + 1}/{segments_total})"
+        )
+        # Build a 4-second rolling context window (trained window size) from incoming 2-second chunks.
+        # This avoids repeating a short chunk to reach the model window, which can cause artifacts.
+        context_sec = 4.0
+        pcm_buf = _append_context_audio(window, audio_bytes, target_sr=detector.sample_rate, context_sec=context_sec)
+        audio_for_model = audio_bytes
+        if pcm_buf is not None:
+            # Ensure the model sees a full 4s window when possible.
+            target_len = int(float(context_sec) * float(detector.sample_rate))
+            if pcm_buf.shape[0] < target_len and pcm_buf.shape[0] > 0:
+                reps = int((target_len + pcm_buf.shape[0] - 1) / pcm_buf.shape[0])
+                pcm_full = (pcm_buf.repeat(reps))[:target_len]
+            else:
+                pcm_full = pcm_buf
+            encoded = _encode_wav_bytes(pcm_full, sample_rate=detector.sample_rate)
+            if encoded:
+                audio_for_model = encoded
+
+        segment_result = detector.predict(audio_for_model)
+        logger.info(f"Deepfake detection completed (segment): {segment_result}")
+
+        if segment_result.get('status') != 'success':
+            emit('deepfake_result', {
+                'call_id': call_id,
+                'sender_id': sender_id,
+                'result': segment_result,
+                'timestamp': time.time(),
+            }, room=analyzer_sid)
+            return
+
+        prob = float(segment_result.get('confidence', 0.0))
+        seg_auth = segment_result.get('authentic_probability')
+        seg_vad_speech = segment_result.get('vad_speech')
+        seg_vad_db = segment_result.get('vad_db')
+        window['probs'].append(prob)
+
+        # Combine probabilities from the first 5 clips.
+        # Simple mean is stable and matches the “combine 5 clips” requirement.
+        combined = float(sum(window['probs']) / max(1, len(window['probs'])))
+        window['combined'] = combined
+
+        # Stable decision smoothing/hysteresis
+        try:
+            hist_len = int(float((__import__('os').getenv('STABLE_HISTORY_LEN', '5'))))
+        except Exception:
+            hist_len = 5
+        try:
+            hi = float((__import__('os').getenv('STABLE_HIGH_THRESHOLD', '0.85')))
+            lo = float((__import__('os').getenv('STABLE_LOW_THRESHOLD', '0.60')))
+        except Exception:
+            hi, lo = 0.85, 0.60
+
+        stable_state, smoothed = _stable_update(window, combined, history_len=hist_len, high_threshold=hi, low_threshold=lo)
+
+        if len(window['probs']) >= segments_total:
+            window['done'] = True
+
         emit('deepfake_result', {
             'call_id': call_id,
             'sender_id': sender_id,
-            'result': result,
+            'result': {
+                'status': 'success',
+                'mode': 'model',
+                'is_deepfake': bool(stable_state == 'THREAT'),
+                'confidence': combined,
+                'confidence_smoothed': smoothed,
+                'stable_state': stable_state,
+                'authentic_probability': float(1.0 - combined),
+                'segments_total': segments_total,
+                'segments_scored': len(window['probs']),
+                'segment_confidence': prob,
+                'segment_index': len(window['probs']),
+                'segment_confidences': list(window['probs']),
+                'finalized': bool(window['done']),
+                'segment_meta': {
+                    'authentic_probability': seg_auth,
+                    'vad_speech': seg_vad_speech,
+                    'vad_db': seg_vad_db,
+                },
+            },
             'timestamp': time.time()
-        }, room=request.sid)
-        
-        logger.info(f"Deepfake result sent to analyzer (not to audio sender)")
+        }, room=analyzer_sid)
+
+        logger.info("Deepfake aggregated result sent to analyzer (not to audio sender)")
         
     except Exception as e:
         logger.error(f"Error processing audio chunk: {str(e)}")

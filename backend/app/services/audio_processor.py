@@ -3,6 +3,7 @@ Audio Processing Utilities
 """
 import base64
 import io
+import shutil
 from pydub import AudioSegment
 import logging
 
@@ -26,6 +27,13 @@ def convert_webm_to_wav(webm_bytes, target_sample_rate=22050):
     Requires ffmpeg to be installed
     """
     try:
+        # Ensure ffmpeg is available. Without it, pydub cannot decode WebM/Opus.
+        if not shutil.which("ffmpeg") and not shutil.which("ffmpeg.exe"):
+            raise RuntimeError(
+                "FFmpeg was not found on PATH. Install FFmpeg and restart the backend so WebM/Opus audio can be converted to WAV. "
+                "(Example: install 'ffmpeg' and ensure 'ffmpeg.exe' is in PATH.)"
+            )
+
         # Load audio from bytes
         audio = AudioSegment.from_file(
             io.BytesIO(webm_bytes),

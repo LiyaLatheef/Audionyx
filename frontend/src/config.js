@@ -24,7 +24,7 @@ export const AUDIO_CONFIG = {
 
 // Deepfake Thresholds
 export const DEEPFAKE_THRESHOLDS = {
-  LOW: 0.3,
-  MEDIUM: 0.5,
-  HIGH: 0.7
+  LOW: 0.60,
+  MEDIUM: 0.75,
+  HIGH: 0.85
 }

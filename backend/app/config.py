@@ -26,7 +26,7 @@ class Config:
     # ML Model configuration
     BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
     # Default to the latest local model if present.
-    MODEL_PATH = os.getenv('MODEL_PATH', 'models/audionyx_model1.pth')
+    MODEL_PATH = os.getenv('MODEL_PATH', 'models/audionyx_model.pt')
     
     # Audio Processing
     SAMPLE_RATE = 16000

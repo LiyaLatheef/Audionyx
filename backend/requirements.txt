@@ -9,6 +9,7 @@ eventlet==0.33.3
 tensorflow>=2.18.0
 librosa>=0.10.1
 pydub>=0.25.1
+soundfile>=0.12.1
 numpy>=1.26.0
 pandas>=2.1.3
 scikit-learn>=1.3.2
