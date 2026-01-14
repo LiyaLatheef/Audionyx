@@ -20,7 +20,7 @@ def base64_to_bytes(base64_string):
         logger.error(f"Error decoding base64: {str(e)}")
         raise
 
-def convert_webm_to_wav(webm_bytes):
+def convert_webm_to_wav(webm_bytes, target_sample_rate=22050):
     """
     Convert WebM audio to WAV format
     Requires ffmpeg to be installed
@@ -34,7 +34,7 @@ def convert_webm_to_wav(webm_bytes):
         
         # Convert to mono and set sample rate
         audio = audio.set_channels(1)
-        audio = audio.set_frame_rate(16000)
+        audio = audio.set_frame_rate(int(target_sample_rate))
         
         # Export to WAV bytes
         wav_io = io.BytesIO()

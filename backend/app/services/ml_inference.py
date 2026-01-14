@@ -214,6 +214,30 @@ def init_model(model_path):
         # Relative path - convert to absolute from backend directory
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         model_path = os.path.join(backend_dir, model_path)
+
+    # If configured path is missing, fall back to a known filename or the first .h5 in backend/models.
+    if not os.path.exists(model_path):
+        backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+        models_dir = os.path.join(backend_dir, 'models')
+        candidate_paths = [
+            os.path.join(models_dir, 'deepfake_audio_detector.h5'),
+            os.path.join(models_dir, 'deepfake_audio_detector_v2.h5'),
+        ]
+        for candidate in candidate_paths:
+            if os.path.exists(candidate):
+                model_path = candidate
+                break
+        else:
+            try:
+                h5_files = [
+                    os.path.join(models_dir, name)
+                    for name in os.listdir(models_dir)
+                    if name.lower().endswith('.h5')
+                ]
+                if h5_files:
+                    model_path = h5_files[0]
+            except Exception:
+                pass
     _detector = DeepfakeDetector(model_path)
     _detector.load_model()
     return _detector

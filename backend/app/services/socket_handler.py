@@ -6,7 +6,7 @@ from flask_socketio import emit, join_room, leave_room, disconnect
 from app import socketio, db
 from app.models.user import User
 from app.services.ml_inference import get_detector
-from app.services.audio_processor import base64_to_bytes, validate_audio_chunk
+from app.services.audio_processor import base64_to_bytes, convert_webm_to_wav, validate_audio_chunk
 import time
 import logging
 from datetime import datetime
@@ -328,6 +328,14 @@ def handle_audio_chunk(data):
             audio_bytes = base64_to_bytes(audio_data)
         else:
             audio_bytes = audio_data
+
+        # Convert browser-recorded WebM/Opus into WAV for librosa/tensorflow pipeline.
+        # This requires ffmpeg and is essential for real model inference.
+        detector = get_detector()
+        try:
+            audio_bytes = convert_webm_to_wav(audio_bytes, target_sample_rate=detector.sample_rate)
+        except Exception as e:
+            logger.warning(f"WebM->WAV conversion failed ({e}); attempting inference on raw bytes")
         
         # Validate audio chunk
         is_valid, message = validate_audio_chunk(audio_bytes)
@@ -336,9 +344,8 @@ def handle_audio_chunk(data):
             return
         
         logger.info(f"Processing audio chunk for call {call_id}, analyzing audio from user {sender_id}")
-        
+
         # Run ML inference
-        detector = get_detector()
         result = detector.predict(audio_bytes)
         
         logger.info(f"Deepfake detection completed: {result}")
