@@ -18,7 +18,10 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # CORS
-    CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
+    CORS_ORIGINS = os.getenv(
+        'CORS_ORIGINS',
+        'http://localhost:3000,http://localhost:3001,http://localhost:5173'
+    ).split(',')
     
     # ML Model configuration
     BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
@@ -38,6 +41,8 @@ class DevelopmentConfig(Config):
     """Development configuration"""
     DEBUG = True
     FLASK_ENV = 'development'
+    # eventlet is unreliable on Windows; threading is the most stable option for local dev.
+    SOCKETIO_ASYNC_MODE = 'threading'
 
 class ProductionConfig(Config):
     """Production configuration"""
