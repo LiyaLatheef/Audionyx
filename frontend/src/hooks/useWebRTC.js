@@ -6,6 +6,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
   const [remoteStream, setRemoteStream] = useState(null)
   const [isCallActive, setIsCallActive] = useState(false)
   const [callId, setCallId] = useState(null)
+  const [callStartTime, setCallStartTime] = useState(null)
   const [isCalling, setIsCalling] = useState(false)
   const [incomingCall, setIncomingCall] = useState(null)
   const [isCaller, setIsCaller] = useState(false) // Track if current user is the caller
@@ -96,6 +97,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       setCallId(call.call_id)
       setIsCallActive(true)
       setIsCaller(false) // Mark this user as the callee (receiver)
+      setCallStartTime(Date.now()) // Fallback in case call_started isn't received
 
       // Get local stream
       let stream = localStream
@@ -152,6 +154,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
     setIsCallActive(false)
     setIsCaller(false) // Reset caller status
     setCallId(null)
+    setCallStartTime(null)
     setIsCalling(false)
     iceCandidatesQueue.current = []
   }
@@ -179,6 +182,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       setCallId(data.call_id)
       setIsCallActive(true)
       setIsCalling(false)
+      setCallStartTime(prev => prev ?? Date.now()) // Fallback until call_started arrives
 
       // Create peer connection and send offer
       const pc = createPeerConnection(data.call_id)
@@ -199,6 +203,13 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
         call_id: data.call_id,
         offer: offer
       })
+    })
+
+    // Call timer start (shared timestamp from server)
+    socket.on('call_started', (data) => {
+      if (!data?.call_id || !data?.started_at) return
+      setCallId(prev => prev || data.call_id)
+      setCallStartTime(data.started_at)
     })
 
     // Call rejected
@@ -271,6 +282,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       socket.off('incoming_call')
       socket.off('call_failed')
       socket.off('call_accepted')
+      socket.off('call_started')
       socket.off('call_rejected')
       socket.off('call_ended')
       socket.off('offer')
@@ -296,6 +308,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
     remoteStream,
     isCallActive,
     callId,
+    callStartTime,
     isCalling,
     incomingCall,
     isCaller, // Export caller status

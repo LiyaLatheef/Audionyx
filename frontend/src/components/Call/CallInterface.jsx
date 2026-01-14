@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useAuth } from '../../context/AuthContext'
 import { useCall } from '../../context/CallContext'
 import { useAudioProcessing } from '../../hooks/useAudioProcessing'
@@ -14,11 +14,40 @@ const CallInterface = ({ remoteUser }) => {
     endCall, 
     callId,
     socket,
-    isCaller // Get caller status
+    isCaller, // Get caller status
+    callStartTime
   } = useCall()
 
   const localAudioRef = useRef(null)
   const remoteAudioRef = useRef(null)
+
+  const [nowMs, setNowMs] = useState(Date.now())
+
+  useEffect(() => {
+    if (!callStartTime) return
+    setNowMs(Date.now())
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000)
+    return () => window.clearInterval(id)
+  }, [callStartTime])
+
+  const callTimerText = useMemo(() => {
+    if (!callStartTime) return null
+
+    const elapsedSeconds = Math.max(0, Math.floor((nowMs - callStartTime) / 1000))
+    const hours = Math.floor(elapsedSeconds / 3600)
+    const minutes = Math.floor((elapsedSeconds % 3600) / 60)
+    const seconds = elapsedSeconds % 60
+
+    const mm = String(minutes).padStart(2, '0')
+    const ss = String(seconds).padStart(2, '0')
+
+    if (hours > 0) {
+      const hh = String(hours).padStart(2, '0')
+      return `${hh}:${mm}:${ss}`
+    }
+
+    return `${mm}:${ss}`
+  }, [callStartTime, nowMs])
 
   // Start audio processing for deepfake detection
   // Pass the remote user's ID as sender_id so backend knows who sent the audio
@@ -51,7 +80,7 @@ const CallInterface = ({ remoteUser }) => {
     <div className="call-interface">
       <div className="call-header">
         <h2>Call with {remoteUser?.username || 'User'}</h2>
-        <span className="call-status">Connected</span>
+        <span className="call-status">Connected{callTimerText ? ` • ${callTimerText}` : ''}</span>
       </div>
 
       <div className="call-body">

@@ -165,6 +165,14 @@ def handle_call_accepted(data):
         # Both caller and callee join the room
         join_room(call_id, sid=call_data['caller_sid'])
         join_room(call_id, sid=call_data['callee_sid'])
+
+        # Record accepted timestamp and notify both peers to start their call timers.
+        accepted_at_ms = int(time.time() * 1000)
+        call_data['accepted_at'] = accepted_at_ms
+        emit('call_started', {
+            'call_id': call_id,
+            'started_at': accepted_at_ms
+        }, room=call_id)
         
         # Notify caller that call was accepted
         emit('call_accepted', {
