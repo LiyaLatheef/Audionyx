@@ -23,7 +23,8 @@ export const CallProvider = ({ children }) => {
   const webrtc = useWebRTC(
     socket,
     user?.id,
-    (stream) => setRemoteStreamState(stream)
+    (stream) => setRemoteStreamState(stream),
+    user  // Pass user info to WebRTC hook for fraudster detection
   )
 
   // Initialize socket connection

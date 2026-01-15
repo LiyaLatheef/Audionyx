@@ -17,6 +17,11 @@ export const ICE_SERVERS = [
 // Audio Configuration
 export const AUDIO_CONFIG = {
   CHUNK_DURATION: 2000, // milliseconds
+  // Detection mode:
+  // - 'stream': send 2s chunks continuously (low latency)
+  // - 'batch10s': buffer ~10s then send one WAV for analysis (higher latency, often more stable)
+  DETECTION_MODE: 'batch10s',
+  BATCH_SECONDS: 10,
   SAMPLE_RATE: 16000,
   CHANNELS: 1,
   MIME_TYPE: 'audio/webm;codecs=opus'

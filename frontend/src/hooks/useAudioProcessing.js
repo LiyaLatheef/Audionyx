@@ -11,6 +11,8 @@ export const useAudioProcessing = (socket, remoteStream, callId, senderId) => {
   const retryTimerRef = useRef(null)
   const sampleBufferRef = useRef([])
   const bufferedFramesRef = useRef(0)
+  const batchBufferRef = useRef([])
+  const batchSamplesRef = useRef(0)
   const isProcessingRef = useRef(false)
 
   const encodeWav16 = (pcmFloat32, sampleRate) => {
@@ -174,6 +176,13 @@ export const useAudioProcessing = (socket, remoteStream, callId, senderId) => {
       sampleBufferRef.current = []
       bufferedFramesRef.current = 0
 
+      batchBufferRef.current = []
+      batchSamplesRef.current = 0
+
+      const detectionMode = AUDIO_CONFIG.DETECTION_MODE || 'stream'
+      const batchSeconds = AUDIO_CONFIG.BATCH_SECONDS || 10
+      const batchSamplesTarget = Math.floor(16000 * batchSeconds)
+
       processor.onaudioprocess = (e) => {
         if (!socket || !callId) return
         const input = e.inputBuffer.getChannelData(0)
@@ -199,20 +208,53 @@ export const useAudioProcessing = (socket, remoteStream, callId, senderId) => {
           bufferedFramesRef.current = remainder.length
 
           const down = downsampleTo16k(chunk, audioCtx.sampleRate)
-          const wav = encodeWav16(down, 16000)
-          if (!looksLikeWav(wav)) {
-            try {
-              const head = Array.from(new Uint8Array(wav).slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join('')
-              console.warn('Encoded audio does not look like WAV. head=', head)
-            } catch {}
-          }
-          const b64 = arrayBufferToBase64(wav)
 
-          socket.emit('audio_chunk', {
-            call_id: callId,
-            audio: `data:audio/wav;base64,${b64}`,
-            sender_id: senderId
-          })
+          if (detectionMode === 'batch10s') {
+            // Buffer 10s of 16kHz mono samples, then send one WAV.
+            batchBufferRef.current.push(down)
+            batchSamplesRef.current += down.length
+
+            if (batchSamplesRef.current >= batchSamplesTarget) {
+              const total = batchSamplesRef.current
+              const merged = new Float32Array(total)
+              let off = 0
+              for (const part of batchBufferRef.current) {
+                merged.set(part, off)
+                off += part.length
+              }
+
+              const tenSec = merged.slice(0, batchSamplesTarget)
+              const remainder = merged.slice(batchSamplesTarget)
+
+              batchBufferRef.current = remainder.length ? [remainder] : []
+              batchSamplesRef.current = remainder.length
+
+              const wav = encodeWav16(tenSec, 16000)
+              const b64 = arrayBufferToBase64(wav)
+              socket.emit('audio_chunk', {
+                call_id: callId,
+                audio: `data:audio/wav;base64,${b64}`,
+                sender_id: senderId,
+                analysis_mode: 'ten_sec',
+                window_sec: batchSeconds
+              })
+            }
+          } else {
+            const wav = encodeWav16(down, 16000)
+            if (!looksLikeWav(wav)) {
+              try {
+                const head = Array.from(new Uint8Array(wav).slice(0, 16)).map(b => b.toString(16).padStart(2, '0')).join('')
+                console.warn('Encoded audio does not look like WAV. head=', head)
+              } catch {}
+            }
+            const b64 = arrayBufferToBase64(wav)
+
+            socket.emit('audio_chunk', {
+              call_id: callId,
+              audio: `data:audio/wav;base64,${b64}`,
+              sender_id: senderId
+            })
+          }
         }
       }
 
@@ -262,6 +304,9 @@ export const useAudioProcessing = (socket, remoteStream, callId, senderId) => {
       }
       sampleBufferRef.current = []
       bufferedFramesRef.current = 0
+
+      batchBufferRef.current = []
+      batchSamplesRef.current = 0
     } catch (error) {
       console.error('Error stopping WebAudio processing:', error)
     }

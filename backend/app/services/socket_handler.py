@@ -22,6 +22,9 @@ active_calls = {}   # {call_id: {'caller_id': X, 'callee_id': Y, 'start_time': T
 # and compute a combined probability.
 _fraud_windows = {}  # {(call_id, sender_id, analyzer_sid): {'probs': [..], 'done': bool, 'combined': float, ...}}
 
+# Stable state for 10-second batch mode (multiple 10s analyses per call)
+_tensec_states = {}  # {(call_id, sender_id, analyzer_sid): {'score_history': [...], 'stable_state': str, 'smoothed_confidence': float}}
+
 
 def _median(values):
     if not values:
@@ -100,10 +103,90 @@ def _append_context_audio(state, audio_bytes, target_sr=16000, context_sec=4.0):
 
 def _encode_wav_bytes(pcm_float32, sample_rate=16000):
     """Encode float32 mono PCM into a PCM16 WAV bytes payload."""
+    # Try soundfile first (cleaner API)
     try:
         import soundfile as sf
+        bio = BytesIO()
+        sf.write(bio, pcm_float32, int(sample_rate), format='WAV', subtype='PCM_16')
+        bio.seek(0)
+        return bio.getvalue()
+    except Exception as e_sf:
+        # Fallback to stdlib wave module
+        try:
+            import wave
+            import struct
+            import numpy as np
+            
+            if not isinstance(pcm_float32, np.ndarray):
+                pcm_float32 = np.array(pcm_float32, dtype='float32')
+            
+            # Clamp and convert to int16
+            pcm_float32 = np.clip(pcm_float32, -1.0, 1.0)
+            pcm_int16 = (pcm_float32 * 32767.0).astype(np.int16)
+            
+            bio = BytesIO()
+            with wave.open(bio, 'wb') as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)  # 16-bit
+                wf.setframerate(int(sample_rate))
+                wf.writeframes(pcm_int16.tobytes())
+            bio.seek(0)
+            return bio.getvalue()
+        except Exception as e_wave:
+            logger.error(f"WAV encoding failed (soundfile: {e_sf}, wave: {e_wave})")
+            return None
+
+
+def _decode_wav_to_pcm(audio_bytes, target_sr=16000):
+    """Decode WAV bytes to mono float32 PCM at target sample rate."""
+    try:
+        import numpy as np
+        import soundfile as sf
+        import librosa
     except Exception:
         return None
+
+    try:
+        audio_np, sr = sf.read(BytesIO(audio_bytes), dtype='float32', always_2d=True)
+        audio_np = audio_np.mean(axis=1)
+    except Exception:
+        return None
+
+    try:
+        if int(sr) != int(target_sr):
+            audio_np = librosa.resample(audio_np, orig_sr=int(sr), target_sr=int(target_sr)).astype('float32')
+    except Exception:
+        pass
+
+    return audio_np
+
+
+def _sliding_windows(pcm, sample_rate, window_sec=4.0, stride_sec=2.0):
+    """Return a list of PCM windows (float32 arrays) from a longer clip."""
+    try:
+        import numpy as np
+    except Exception:
+        return []
+
+    win = int(float(window_sec) * float(sample_rate))
+    stride = int(float(stride_sec) * float(sample_rate))
+    if win <= 0 or stride <= 0:
+        return []
+
+    if pcm is None or getattr(pcm, 'shape', None) is None or pcm.shape[0] == 0:
+        return []
+
+    if pcm.shape[0] < win:
+        reps = int(np.ceil(win / float(pcm.shape[0])))
+        pcm = np.tile(pcm, reps)[:win]
+        return [pcm]
+
+    out = []
+    for start in range(0, pcm.shape[0] - win + 1, stride):
+        out.append(pcm[start:start + win])
+    if not out:
+        out.append(pcm[:win])
+    return out
 
     bio = BytesIO()
     try:
@@ -157,6 +240,10 @@ def handle_disconnect():
         for key in list(_fraud_windows.keys()):
             if key[2] == request.sid:
                 del _fraud_windows[key]
+
+        for key in list(_tensec_states.keys()):
+            if key[2] == request.sid:
+                del _tensec_states[key]
 
 @socketio.on('user_online')
 def handle_user_online(data):
@@ -338,6 +425,10 @@ def handle_end_call(data):
         for key in list(_fraud_windows.keys()):
             if key[0] == call_id:
                 del _fraud_windows[key]
+
+        for key in list(_tensec_states.keys()):
+            if key[0] == call_id:
+                del _tensec_states[key]
         
         logger.info(f"Call ended: {call_id}, notified both users")
         
@@ -427,6 +518,8 @@ def handle_audio_chunk(data):
         call_id = data.get('call_id')
         audio_data = data.get('audio')
         sender_id = data.get('sender_id')
+        analysis_mode = data.get('analysis_mode') or data.get('analysis') or 'stream'
+        window_sec = data.get('window_sec')
         
         if not call_id or call_id not in active_calls:
             logger.warning(f"Received audio for invalid call: {call_id}")
@@ -544,8 +637,117 @@ def handle_audio_chunk(data):
                 'timestamp': time.time()
             }, room=request.sid)
             return
-        
+
         analyzer_sid = request.sid
+
+        # 10-second batch mode: the browser buffers ~10s and sends one WAV.
+        # We score multiple 4-second windows inside it and aggregate.
+        if str(analysis_mode).lower() in {'ten_sec', '10s', 'batch10s', 'batch_10s'}:
+            try:
+                detector = get_detector()
+                try:
+                    batch_sec = float(window_sec) if window_sec is not None else 10.0
+                except Exception:
+                    batch_sec = 10.0
+
+                # Model window size is detector.duration (trained default 4s)
+                model_window_sec = float(getattr(detector, 'duration', 4.0) or 4.0)
+                try:
+                    stride_sec = float(__import__('os').getenv('TEN_SEC_STRIDE_SEC', '2.0'))
+                except Exception:
+                    stride_sec = 2.0
+
+                pcm = _decode_wav_to_pcm(audio_bytes, target_sr=detector.sample_rate)
+                if pcm is None:
+                    raise RuntimeError('Failed to decode WAV for batch analysis')
+
+                windows = _sliding_windows(pcm, detector.sample_rate, window_sec=model_window_sec, stride_sec=stride_sec)
+                if not windows:
+                    raise RuntimeError('No windows produced for batch analysis')
+
+                probs = []
+                metas = []
+                for i, w in enumerate(windows, start=1):
+                    wav_i = _encode_wav_bytes(w, sample_rate=detector.sample_rate)
+                    if not wav_i:
+                        raise RuntimeError('Failed to encode WAV window for batch analysis')
+
+                    r = detector.predict(wav_i)
+                    if r.get('status') != 'success':
+                        raise RuntimeError(f"Model error on window {i}: {r.get('message') or r}")
+                    p = float(r.get('confidence', 0.0))
+                    probs.append(p)
+                    metas.append({
+                        'index': i,
+                        'confidence': p,
+                        'authentic_probability': r.get('authentic_probability'),
+                        'vad_speech': r.get('vad_speech'),
+                        'vad_db': r.get('vad_db'),
+                    })
+
+                combined = float(sum(probs) / max(1, len(probs)))
+
+                state_key = (call_id, sender_id, analyzer_sid)
+                state = _tensec_states.get(state_key)
+                if state is None:
+                    state = {'score_history': [], 'stable_state': 'SAFE', 'smoothed_confidence': 0.0}
+                    _tensec_states[state_key] = state
+
+                try:
+                    hist_len = int(float((__import__('os').getenv('STABLE_HISTORY_LEN', '5'))))
+                except Exception:
+                    hist_len = 5
+                try:
+                    hi = float((__import__('os').getenv('STABLE_HIGH_THRESHOLD', '0.85')))
+                    lo = float((__import__('os').getenv('STABLE_LOW_THRESHOLD', '0.60')))
+                except Exception:
+                    hi, lo = 0.85, 0.60
+
+                stable_state, smoothed = _stable_update(state, combined, history_len=hist_len, high_threshold=hi, low_threshold=lo)
+
+                emit('deepfake_result', {
+                    'call_id': call_id,
+                    'sender_id': sender_id,
+                    'result': {
+                        'status': 'success',
+                        'mode': 'model',
+                        'analysis_mode': 'ten_sec',
+                        'batch_seconds': float(batch_sec),
+                        'model_window_sec': float(model_window_sec),
+                        'stride_sec': float(stride_sec),
+                        'is_deepfake': bool(stable_state == 'THREAT'),
+                        'confidence': float(combined),
+                        'confidence_smoothed': float(smoothed),
+                        'stable_state': stable_state,
+                        'authentic_probability': float(1.0 - combined),
+                        'segments_total': len(probs),
+                        'segments_scored': len(probs),
+                        'segment_confidences': list(probs),
+                        'finalized': True,
+                        'segment_meta': {
+                            'windows': metas,
+                        },
+                    },
+                    'timestamp': time.time(),
+                }, room=analyzer_sid)
+                return
+            except Exception as e:
+                msg = f"10s batch analysis failed: {e}"
+                logger.warning(msg)
+                emit('deepfake_result', {
+                    'call_id': call_id,
+                    'sender_id': sender_id,
+                    'result': {
+                        'status': 'error',
+                        'message': msg,
+                        'is_deepfake': False,
+                        'confidence': 0.0,
+                    },
+                    'timestamp': time.time(),
+                }, room=analyzer_sid)
+                return
+
+        # Default stream mode: keep existing first-10s aggregation behavior.
         window_key = (call_id, sender_id, analyzer_sid)
         window = _fraud_windows.get(window_key)
         if window is None:
