@@ -4,6 +4,8 @@ const AudioVisualizer = ({ stream, color = '#739EBD' }) => {
   const canvasRef = useRef(null)
   const animationRef = useRef(null)
   const analyserRef = useRef(null)
+  const sourceRef = useRef(null)
+  const audioContextRef = useRef(null)
 
   useEffect(() => {
     if (!stream) return
@@ -11,32 +13,60 @@ const AudioVisualizer = ({ stream, color = '#739EBD' }) => {
     const canvas = canvasRef.current
     if (!canvas) return
 
-    const ctx = canvas.getContext('2d')
-    const audioContext = new (window.AudioContext || window.webkitAudioContext)()
-    const analyser = audioContext.createAnalyser()
-    const source = audioContext.createMediaStreamSource(stream)
+    // Initialize AudioContext if not already done
+    if (!audioContextRef.current) {
+      audioContextRef.current = new (window.AudioContext || window.webkitAudioContext)()
+    }
+    const audioContext = audioContextRef.current
 
+    // Ensure context is running
+    const resumeContext = async () => {
+      if (audioContext.state === 'suspended') {
+        try {
+          await audioContext.resume()
+          console.log('AudioContext resumed')
+        } catch (e) {
+          console.error('Failed to resume AudioContext:', e)
+        }
+      }
+    }
+    resumeContext()
+
+    const ctx = canvas.getContext('2d')
+
+    // Create analyser
+    const analyser = audioContext.createAnalyser()
     analyser.fftSize = 256
+    analyserRef.current = analyser
+
+    // Create and connect source
+    try {
+      const source = audioContext.createMediaStreamSource(stream)
+      source.connect(analyser)
+      sourceRef.current = source
+    } catch (err) {
+      console.error("Error connecting stream to analyser:", err)
+    }
+
     const bufferLength = analyser.frequencyBinCount
     const dataArray = new Uint8Array(bufferLength)
-
-    source.connect(analyser)
-    analyserRef.current = analyser
 
     const draw = () => {
       animationRef.current = requestAnimationFrame(draw)
 
       analyser.getByteFrequencyData(dataArray)
 
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.1)'
-      ctx.fillRect(0, 0, canvas.width, canvas.height)
+      // Clear canvas with transparent clear
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
 
       const barWidth = (canvas.width / bufferLength) * 2.5
       let barHeight
       let x = 0
 
+      // If all zeros, draw a flat line or something to indicate "connected but silent"
+      // But for now, just bars.
       for (let i = 0; i < bufferLength; i++) {
-        barHeight = (dataArray[i] / 255) * canvas.height * 0.8
+        barHeight = (dataArray[i] / 255) * canvas.height
 
         ctx.fillStyle = color
         ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight)
@@ -51,8 +81,19 @@ const AudioVisualizer = ({ stream, color = '#739EBD' }) => {
       if (animationRef.current) {
         cancelAnimationFrame(animationRef.current)
       }
-      if (audioContext.state !== 'closed') {
-        audioContext.close()
+      // Don't close AudioContext immediately as it might be reused or cause lag on frequent remounts
+      // But for correctness in this specific component lifecycle, we should disconnect.
+      if (sourceRef.current) {
+        sourceRef.current.disconnect()
+      }
+      if (analyserRef.current) {
+        analyserRef.current.disconnect()
+      }
+      // If we own the context, we should close it
+      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+        audioContextRef.current.close().then(() => {
+          audioContextRef.current = null
+        })
       }
     }
   }, [stream, color])

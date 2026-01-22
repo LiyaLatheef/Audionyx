@@ -8,10 +8,10 @@ import './CallInterface.css'
 
 const CallInterface = ({ remoteUser }) => {
   const { user } = useAuth()
-  const { 
-    localStream, 
-    remoteStream, 
-    endCall, 
+  const {
+    localStream,
+    remoteStream,
+    endCall,
     callId,
     socket,
     isCaller, // Get caller status
@@ -85,7 +85,7 @@ const CallInterface = ({ remoteUser }) => {
 
       <div className="call-body">
         {/* Audio elements */}
-        <audio ref={localAudioRef} autoPlay playsInline />
+        <audio ref={localAudioRef} autoPlay playsInline muted />
         <audio ref={remoteAudioRef} autoPlay playsInline />
 
         {/* Audio Visualizers - Only show to callee (receiver) */}
@@ -107,7 +107,7 @@ const CallInterface = ({ remoteUser }) => {
 
         {/* Deepfake Detection Results - Only show to callee (person who received the call) */}
         {!isCaller && <DeepfakeIndicator />}
-        
+
         {/* Show message to caller */}
         {isCaller && (
           <div className="caller-message" style={{

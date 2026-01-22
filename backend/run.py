@@ -14,5 +14,6 @@ if __name__ == '__main__':
         port=5000,
         debug=False,
         use_reloader=False,
-        log_output=True
+        log_output=True,
+        ssl_context='adhoc'
     )

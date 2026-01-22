@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
+import { API_URL } from '../../config'
+import ConnectionCheck from '../ConnectionCheck'
 import './Auth.css'
 
 const Login = () => {
@@ -61,6 +63,7 @@ const Login = () => {
               <p className="auth-heroCopy">
                 Sign in to start real-time call analysis.
               </p>
+              <ConnectionCheck apiUrl={API_URL} />
             </div>
 
             <form onSubmit={handleSubmit} className="auth-formCard" aria-label="Login form">
