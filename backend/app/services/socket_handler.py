@@ -199,6 +199,7 @@ def _sliding_windows(pcm, sample_rate, window_sec=4.0, stride_sec=2.0):
 def handle_connect():
     """Handle client connection"""
     logger.info(f"Client connected: {request.sid}")
+    logger.info(f"Origin: {request.origin}, Headers: {request.headers.get('User-Agent')}")
     emit('connected', {'sid': request.sid})
 
 @socketio.on('disconnect')

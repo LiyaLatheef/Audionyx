@@ -42,7 +42,8 @@ class DevelopmentConfig(Config):
     DEBUG = True
     FLASK_ENV = 'development'
     # eventlet is unreliable on Windows; threading is the most stable option for local dev.
-    SOCKETIO_ASYNC_MODE = 'threading'
+    # SOCKETIO_ASYNC_MODE = 'threading' 
+    SOCKETIO_ASYNC_MODE = None # Auto-detect (likely eventlet)
 
 class ProductionConfig(Config):
     """Production configuration"""

@@ -1,8 +1,9 @@
 /**
  * API Configuration
+ * When empty, requests go to the same origin (proxied by Vite to the backend)
  */
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
+export const API_URL = import.meta.env.VITE_API_URL || ''
+export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || ''
 
 // WebRTC Configuration
 export const ICE_SERVERS = [
