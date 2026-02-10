@@ -618,71 +618,175 @@ class DeepfakeDetector:
                     'mode': 'demo'
                 }
             
-            # Simple VAD guard (matches training demo behavior)
-            # If chunk is effectively silence, return 0 risk instead of scoring.
-            vad_db = None
-            vad_speech = None
-            try:
-                import soundfile as sf
-                audio_np, sr = sf.read(BytesIO(audio_bytes), dtype='float32', always_2d=True)
-                audio_np = audio_np.mean(axis=1)
-                rms = float((audio_np ** 2).mean() ** 0.5)
-                import math
-                db = 20.0 * math.log10(rms + 1e-9)
-                vad_db = db
-                vad_thresh = float(os.getenv('VAD_THRESHOLD_DB', '-40'))
-                if db <= vad_thresh:
-                    vad_speech = False
-                    return {
-                        'is_deepfake': False,
-                        'confidence': 0.0,
-                        'authentic_probability': 1.0,
-                        'status': 'success',
-                        'mode': 'model',
-                        'vad_speech': False,
-                        'vad_db': db,
-                    }
-                vad_speech = True
-            except Exception:
-                pass
+            # Load full audio once
+            import librosa
+            audio_data, sample_rate = librosa.load(BytesIO(audio_bytes), sr=self.sample_rate)
+            total_duration = librosa.get_duration(y=audio_data, sr=sample_rate)
+            
+            logger.info(f"Loaded audio: {total_duration:.2f}s, SR={sample_rate}")
 
-            # Preprocess audio
-            features = self.preprocess_audio(audio_bytes)
+            # Sliding window parameters
+            window_size = int(self.duration * sample_rate) # 2 seconds
+            stride = int(1.0 * sample_rate) # 1 second stride
+            
+            # Generate segments
+            segments = []
+            
+            # Handle short audio (pad if needed)
+            if len(audio_data) < window_size:
+                 padding = window_size - len(audio_data)
+                 audio_data = np.pad(audio_data, (0, padding), mode='constant')
+            
+            # Sliding window loop
+            for start in range(0, len(audio_data), stride):
+                end = start + window_size
+                
+                # Stop if we went too far past the end? 
+                # Actually, we want to include the last partial segment too?
+                # The user requirement says: "Pad the final segment... if it is shorter"
+                
+                if start >= len(audio_data):
+                    break
+                    
+                segment = audio_data[start:end]
+                
+                # Check alignment and pad if needed (last segment)
+                if len(segment) < window_size:
+                    padding = window_size - len(segment)
+                    segment = np.pad(segment, (0, padding), mode='constant')
+                
+                segments.append(segment)
 
-            # Run prediction
+            if not segments:
+                logger.warning("No segments generated")
+                return {'is_deepfake': False, 'confidence': 0.0, 'status': 'success'}
+
+            # Preprocess all segments
+            # We can't batch efficiently in python loop easily without stacking, 
+            # but model.predict accepts a batch.
+            
+            processed_segments = []
+            for seg in segments:
+                # Extract features for this segment
+                # Shape: (1, 128, 87)
+                feat = self._extract_features_from_segment(seg, sample_rate)
+                processed_segments.append(feat[0]) # Remove batch dim (128, 87)
+
+            # Stack into batch: (B, 128, 87)
+            batch = np.array(processed_segments)
+            
+            logger.info(f"Running inference on {len(batch)} segments. Batch shape: {batch.shape}")
+            
+            # Run batch inference
             if self.model_backend == 'torch':
-                deepfake_probability = float(self._torch_predict_proba(features))
+                 # Not refactoring torch path for now, assuming Keras model usage
+                 # If user switches back to Torch, this path might need update, 
+                 # but for now we focus on the Keras requirement.
+                 logger.warning("Using Torch backend with new sliding window logic is not fully optimized.")
+                 predictions = []
+                 for feat in batch:
+                     # Add batch dim back for torch
+                     feat_batch = np.expand_dims(feat, axis=0) 
+                     prob = self._torch_predict_proba(feat_batch)
+                     predictions.append(prob)
+                 predictions = np.array(predictions)
             else:
-                prediction = self.model.predict(features, verbose=0)
-                # Extract probability (adjust based on your model output)
-                # Assuming binary classification with sigmoid activation
-                if prediction.shape[-1] == 1:
-                    deepfake_probability = float(prediction[0][0])
-                else:
-                    # If softmax with 2 classes, take the second class probability
-                    deepfake_probability = float(prediction[0][1])
+                 raw_preds = self.model.predict(batch, verbose=0)
+                 # Assuming binary output (B, 1) or (B, 2)
+                 if raw_preds.shape[-1] == 1:
+                     predictions = raw_preds.flatten()
+                 else:
+                     predictions = raw_preds[:, 1] # Class 1 probability
+
+            # Aggregation Rules
+            # 1. If ANY segment > 0.90 -> FAKE
+            max_prob = np.max(predictions)
+            avg_prob = np.mean(predictions)
             
-            # Determine classification
-            is_deepfake = deepfake_probability > 0.5
+            logger.info(f"Predictions: Max={max_prob:.4f}, Avg={avg_prob:.4f}, Count={len(predictions)}")
             
+            is_deepfake = False
+            final_confidence = 0.0
+            
+            if max_prob > 0.90:
+                is_deepfake = True
+                final_confidence = float(max_prob)
+                reason = "High confidence segment detected"
+            elif avg_prob > 0.50:
+                is_deepfake = True
+                final_confidence = float(avg_prob)
+                reason = "Average confidence > 0.5"
+            else:
+                is_deepfake = False
+                final_confidence = float(avg_prob)
+                reason = "Average confidence <= 0.5"
+
             return {
                 'is_deepfake': is_deepfake,
-                'confidence': deepfake_probability,
-                'authentic_probability': float(1.0 - deepfake_probability),
+                'confidence': final_confidence,
+                'authentic_probability': float(1.0 - final_confidence),
                 'status': 'success',
                 'mode': 'model',
-                'vad_speech': vad_speech,
-                'vad_db': vad_db,
+                'reason': reason,
+                'segment_count': len(segments)
             }
             
         except Exception as e:
             logger.error(f"Error during prediction: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return {
                 'status': 'error',
                 'message': str(e),
                 'is_deepfake': False,
                 'confidence': 0.0
             }
+
+    def _extract_features_from_segment(self, audio_data, sample_rate):
+        """
+        Extract Mel-Spectrogram features from a single audio segment (numpy array).
+        Returns shape (1, 128, 87) for Keras model.
+        """
+        try:
+             # Extract Mel Spectrogram
+            mel_spectrogram = librosa.feature.melspectrogram(
+                y=audio_data, 
+                sr=sample_rate
+            )
+            
+            # Convert to decibels
+            mel_decibel_spectrogram = librosa.power_to_db(mel_spectrogram, ref=np.max)
+            
+            # Ensure shape matches training data (128, 87)
+            target_shape = (128, 87)
+            
+            # Pad or truncate frequency bins
+            if mel_decibel_spectrogram.shape[0] < target_shape[0]:
+                pad_freq = target_shape[0] - mel_decibel_spectrogram.shape[0]
+                mel_decibel_spectrogram = np.pad(
+                    mel_decibel_spectrogram, 
+                    ((0, pad_freq), (0, 0)), 
+                    mode='constant'
+                )
+            elif mel_decibel_spectrogram.shape[0] > target_shape[0]:
+                mel_decibel_spectrogram = mel_decibel_spectrogram[:target_shape[0], :]
+            
+            # Pad or truncate time steps
+            if mel_decibel_spectrogram.shape[1] < target_shape[1]:
+                pad_time = target_shape[1] - mel_decibel_spectrogram.shape[1]
+                mel_decibel_spectrogram = np.pad(
+                    mel_decibel_spectrogram, 
+                    ((0, 0), (0, pad_time)), 
+                    mode='constant'
+                )
+            elif mel_decibel_spectrogram.shape[1] > target_shape[1]:
+                mel_decibel_spectrogram = mel_decibel_spectrogram[:, :target_shape[1]]
+                
+            return np.expand_dims(mel_decibel_spectrogram, axis=0) # (1, 128, 87)
+            
+        except Exception as e:
+            logger.error(f"Error extracting features: {e}")
+            raise
 
 # Global detector instance
 _detector = None
@@ -702,10 +806,11 @@ def init_model(model_path):
         backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
         models_dir = os.path.join(backend_dir, 'models')
         candidate_paths = [
+            os.path.join(models_dir, 'deepfake_audio_detector_v2.h5'),
+            os.path.join(models_dir, 'deepfake_audio_detector (1).h5'),
             os.path.join(models_dir, 'audionyx_model.pt'),
             os.path.join(models_dir, 'audionyx_model1.pth'),
             os.path.join(models_dir, 'deepfake_audio_detector.h5'),
-            os.path.join(models_dir, 'deepfake_audio_detector_v2.h5'),
         ]
         for candidate in candidate_paths:
             if os.path.exists(candidate):
