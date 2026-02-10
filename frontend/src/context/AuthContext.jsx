@@ -13,7 +13,12 @@ export const useAuth = () => {
 }
 
 export const AuthProvider = ({ children }) => {
-  const [user, setUser] = useState(null)
+  const [user, setUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('user')
+      return stored ? JSON.parse(stored) : null
+    } catch { return null }
+  })
   const [token, setToken] = useState(localStorage.getItem('token'))
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
@@ -29,10 +34,16 @@ export const AuthProvider = ({ children }) => {
           setToken(storedToken)
         } catch (error) {
           console.error('Token verification failed:', error)
-          localStorage.removeItem('token')
-          localStorage.removeItem('user')
-          setToken(null)
-          setUser(null)
+          // Only log out if explicitly unauthorized (401) or forbidden (403)
+          if (error.response && (error.response.status === 401 || error.response.status === 403)) {
+            localStorage.removeItem('token')
+            localStorage.removeItem('user')
+            setToken(null)
+            setUser(null)
+          } else {
+            // For network errors or 500s, keep the user logged in optimistically
+            console.warn('Backend verification failed but token might still be valid. Keeping session.')
+          }
         }
       }
       setLoading(false)
