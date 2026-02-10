@@ -23,8 +23,16 @@ export const CallProvider = ({ children }) => {
   const webrtc = useWebRTC(
     socket,
     user?.id,
-    (stream) => setRemoteStreamState(stream)
+    (stream) => setRemoteStreamState(stream),
+    user  // Pass user info to WebRTC hook for fraudster detection
   )
+
+  // Clear deepfake results when call becomes inactive (fresh start for each call)
+  useEffect(() => {
+    if (!webrtc.isCallActive) {
+      setDeepfakeResults([])
+    }
+  }, [webrtc.isCallActive])
 
   // Initialize socket connection
   useEffect(() => {
@@ -42,7 +50,7 @@ export const CallProvider = ({ children }) => {
       sock.on('user_online', (data) => {
         // Don't add current user to online users list
         if (data.user_id === user.id) return
-        
+
         setOnlineUsers(prev => {
           const exists = prev.find(u => u.id === data.user_id)
           if (!exists && data.user) {

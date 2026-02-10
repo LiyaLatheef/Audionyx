@@ -18,15 +18,20 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     
     # CORS
-    CORS_ORIGINS = os.getenv('CORS_ORIGINS', 'http://localhost:3000,http://localhost:5173').split(',')
+    CORS_ORIGINS = os.getenv(
+        'CORS_ORIGINS',
+        'http://localhost:3000,http://localhost:3001,http://localhost:5173'
+    ).split(',')
     
     # ML Model configuration
     BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
+    # Default to the latest local model if present.
     MODEL_PATH = os.getenv('MODEL_PATH', 'models/deepfake_audio_detector_v2.h5')
     
     # Audio Processing
-    SAMPLE_RATE = 16000
+    SAMPLE_RATE = 22050
     AUDIO_DURATION = 2  # seconds
+    SLIDING_WINDOW_STRIDE = 1 # seconds
     CHUNK_SIZE = 2000  # milliseconds
     
     # Socket.io
@@ -37,6 +42,9 @@ class DevelopmentConfig(Config):
     """Development configuration"""
     DEBUG = True
     FLASK_ENV = 'development'
+    # eventlet is unreliable on Windows; threading is the most stable option for local dev.
+    # SOCKETIO_ASYNC_MODE = 'threading' 
+    SOCKETIO_ASYNC_MODE = None # Auto-detect (likely eventlet)
 
 class ProductionConfig(Config):
     """Production configuration"""

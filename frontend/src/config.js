@@ -1,8 +1,9 @@
 /**
  * API Configuration
+ * When empty, requests go to the same origin (proxied by Vite to the backend)
  */
-export const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000'
-export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000'
+export const API_URL = import.meta.env.VITE_API_URL || ''
+export const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || ''
 
 // WebRTC Configuration
 export const ICE_SERVERS = [
@@ -17,6 +18,11 @@ export const ICE_SERVERS = [
 // Audio Configuration
 export const AUDIO_CONFIG = {
   CHUNK_DURATION: 2000, // milliseconds
+  // Detection mode:
+  // - 'stream': send 2s chunks continuously (low latency)
+  // - 'batch10s': buffer ~10s then send one WAV for analysis (higher latency, often more stable)
+  DETECTION_MODE: 'batch10s',
+  BATCH_SECONDS: 10,
   SAMPLE_RATE: 16000,
   CHANNELS: 1,
   MIME_TYPE: 'audio/webm;codecs=opus'
@@ -24,7 +30,7 @@ export const AUDIO_CONFIG = {
 
 // Deepfake Thresholds
 export const DEEPFAKE_THRESHOLDS = {
-  LOW: 0.3,
-  MEDIUM: 0.5,
-  HIGH: 0.7
+  LOW: 0.60,
+  MEDIUM: 0.75,
+  HIGH: 0.85
 }

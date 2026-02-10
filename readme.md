@@ -2,319 +2,135 @@
 
 A full-stack web application for detecting deepfake audio in real-time phone calls using WebRTC, Socket.io, and machine learning.
 
-## 🎯 Features
+![Audionyx UI](https://via.placeholder.com/800x400?text=Audionyx+Call+Interface)
 
-- **Real-time Audio Calls**: WebRTC-based peer-to-peer audio calls
-- **Deepfake Detection**: ML model integration for real-time fraud detection
-- **User Authentication**: Secure JWT-based authentication
-- **Live Analysis**: 2-second audio chunk processing during calls
-- **Visual Feedback**: Audio visualizers and color-coded deepfake indicators
-- **Multi-user Support**: Online user management and call routing
+## Features
 
-## 🏗️ Architecture
+- **Real-time Audio Calls**: WebRTC-based peer-to-peer audio calls with low latency.
+- **Deepfake Detection**: Integrated Keras model (v2) analyzes audio every 2 seconds.
+- **Fraudster Simulation**: Built-in mode to simulate a fraudster injecting pre-recorded deepfake audio.
+- **Modern UI**: Specialized Glassmorphism design with reactive audio visualizers.
+- **Secure Auth**: JWT-based authentication with session persistence.
+- **Cross-Platform**: Responsive design that works on Desktop and Mobile.
+
+## Architecture
 
 ### Backend (Flask)
-- **Framework**: Flask with Flask-SocketIO
-- **Authentication**: JWT tokens with Flask-JWT-Extended
-- **Database**: SQLAlchemy (SQLite for development)
-- **ML Framework**: TensorFlow/Keras for model inference
-- **Audio Processing**: Librosa, Pydub for audio feature extraction
-- **WebSocket**: Socket.io for real-time signaling and results
+- **Core**: Flask 3.0 + Flask-SocketIO (Eventlet/Threading)
+- **ML Engine**: TensorFlow/Keras running `deepfake_audio_detector_v2.h5`
+- **Audio Processing**: Librosa + SoundFile for feature extraction (MFCC)
+- **Database**: SQLite (SQLAlchemy)
 
 ### Frontend (React)
-- **Framework**: React 18 with Vite
-- **Routing**: React Router v6
-- **WebRTC**: Native WebRTC API with adapter.js
-- **Socket Client**: Socket.io-client
-- **HTTP Client**: Axios with interceptors
-- **Styling**: Pure CSS with modern gradients
+- **Core**: React 18 + Vite
+- **Real-time**: Socket.io-client + Native WebRTC
+- **Styling**: Pure CSS variables, Glassmorphism, Responsive Grid
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 Audionyx/
 ├── backend/
 │   ├── app/
-│   │   ├── __init__.py          # Flask app factory
-│   │   ├── config.py            # Configuration
-│   │   ├── models/
-│   │   │   └── user.py          # User model
-│   │   ├── routes/
-│   │   │   ├── auth.py          # Authentication routes
-│   │   │   └── api.py           # API routes
-│   │   ├── services/
-│   │   │   ├── ml_inference.py      # ML model service
-│   │   │   ├── audio_processor.py   # Audio utilities
-│   │   │   └── socket_handler.py    # Socket.io events
-│   │   └── utils/
+│   │   ├── config.py            # App configuration
+│   │   ├── routes/              # API & Auth routes
+│   │   ├── services/            # ML & Socket logic
+│   │   └── models/              # Database models
 │   ├── models/
-│   │   └── deepfake_audio_detector.h5     # Your trained model (place here)
+│   │   └── deepfake_audio_detector_v2.h5  # Active ML Model
 │   ├── requirements.txt
 │   ├── run.py
-│   └── .env
+│   └── Dockerfile               # For cloud deployment
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── components/
-│   │   │   ├── Auth/
-│   │   │   │   ├── Login.jsx
-│   │   │   │   └── Register.jsx
-│   │   │   ├── Call/
-│   │   │   │   ├── CallInterface.jsx
-│   │   │   │   ├── AudioVisualizer.jsx
-│   │   │   │   └── DeepfakeIndicator.jsx
-│   │   │   └── Dashboard/
-│   │   │       └── UserDashboard.jsx
-│   │   ├── context/
-│   │   │   ├── AuthContext.jsx
-│   │   │   └── CallContext.jsx
-│   │   ├── hooks/
-│   │   │   ├── useWebRTC.js
-│   │   │   └── useAudioProcessing.js
-│   │   ├── services/
-│   │   │   ├── auth.js
-│   │   │   └── socket.js
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   ├── package.json
-│   └── .env
+│   │   ├── components/          # React components (Call, Dashboard, Auth)
+│   │   ├── context/             # Global state (Auth, Call)
+│   │   ├── hooks/               # Custom hooks (useWebRTC)
+│   │   └── services/            # API & Socket services
+│   ├── vite.config.js
+│   └── package.json
 │
 └── README.md
 ```
 
-## 🚀 Setup Instructions
+## Quick Setup
 
 ### Prerequisites
+- **Python 3.10+**
+- **Node.js 18+**
+- **FFmpeg** (Required for audio processing)
+    - *Windows*: `choco install ffmpeg`
+    - *Mac*: `brew install ffmpeg`
+    - *Linux*: `sudo apt install ffmpeg`
 
-- **Python 3.9-3.11** (TensorFlow compatibility)
-- **Node.js 18+** and npm
-- **FFmpeg** (required by pydub for audio conversion)
-
-#### Installing FFmpeg:
-
-**Windows:**
-```powershell
-# Using Chocolatey
-choco install ffmpeg
-
-# Or download from: https://ffmpeg.org/download.html
-```
-
-**macOS:**
+### 1. Backend Setup
 ```bash
-brew install ffmpeg
-```
-
-**Linux:**
-```bash
-sudo apt update
-sudo apt install ffmpeg
-```
-
-### Backend Setup
-
-1. **Navigate to backend directory:**
-```powershell
 cd backend
-```
-
-2. **Create virtual environment:**
-```powershell
 python -m venv venv
-```
-
-3. **Activate virtual environment:**
-```powershell
-# Windows
-.\venv\Scripts\activate
-
-# macOS/Linux
-source venv/bin/activate
-```
-
-4. **Install dependencies:**
-```powershell
+# Activate: .\venv\Scripts\activate (Win) or source venv/bin/activate (Mac/Linux)
 pip install -r requirements.txt
-```
-
-5. **Place your trained model:**
-```
-Place your deepfake_audio_detector.h5 file in: backend/models/deepfake_audio_detector.h5
-```
-
-**Important**: If you don't have a model yet, the system will run in **demo mode** with random predictions for testing purposes.
-
-6. **Run the backend:**
-```powershell
 python run.py
 ```
+*Server runs on `http://localhost:5000`*
 
-Backend will start on `http://localhost:5000`
-
-### Frontend Setup
-
-1. **Open a new terminal and navigate to frontend:**
-```powershell
+### 2. Frontend Setup
+```bash
 cd frontend
-```
-
-2. **Install dependencies:**
-```powershell
 npm install
-```
-
-3. **Run the frontend:**
-```powershell
 npm run dev
 ```
-
-Frontend will start on `http://localhost:3000`
-
-## 🧪 Testing with Two Users (Same Device)
-
-To test the real-time call functionality locally:
-
-### Method 1: Normal + Incognito Browser
-
-1. **Normal Tab** (User A):
-   - Open: `http://localhost:3000`
-   - Register a new account (e.g., alice@test.com)
-   - Login and go to dashboard
-
-2. **Incognito Tab** (User B):
-   - Press `Ctrl+Shift+N` (Chrome) or `Ctrl+Shift+P` (Firefox)
-   - Open: `http://localhost:3000`
-   - Register another account (e.g., bob@test.com)
-   - Login and go to dashboard
-
-3. **Make a Call**:
-   - Both users should see each other in "Online Users"
-   - Click "Call" button from one user
-   - Accept the incoming call on the other user
-   - Real-time deepfake detection will start automatically
-
-### Method 2: Two Different Browsers
-
-- Open one browser (e.g., Chrome): User A
-- Open another browser (e.g., Firefox): User B
-- Follow the same registration and call process
-
-### Expected Behavior
-
-1. **Before Call**:
-   - Dashboard shows list of online users
-   - Users can initiate calls
-
-2. **During Call**:
-   - Audio visualizers show waveforms for both users
-   - Deepfake indicator updates every 2 seconds
-   - Color-coded confidence meter (Green = Safe, Orange = Warning, Red = Danger)
-   - History bars show recent detection results
-
-3. **After Call**:
-   - Users return to dashboard
-   - Can initiate new calls
-
-## 🎯 Model Integration
-
-### Your Model Requirements
-
-Your `.h5` model should:
-- Accept audio features as input (MFCC recommended)
-- Be trained on 2-second audio clips
-- Output a single probability value (0-1) or softmax with 2 classes
-- Sample rate: 16kHz (configurable in `backend/app/config.py`)
-
-### Current Preprocessing
-
-The system extracts **MFCC features** with these parameters:
-```python
-- n_mfcc: 40
-- n_fft: 2048
-- hop_length: 512
-- target_length: 128 time steps
-- Normalization: Z-score
-```
-
-### Customizing Preprocessing
-
-Edit `backend/app/services/ml_inference.py` → `preprocess_audio()` method to match your model's training pipeline.
-
-## 🔧 Configuration
-
-### Backend Configuration (`backend/.env`)
-
-```env
-FLASK_ENV=development
-SECRET_KEY=your-secret-key-change-in-production
-JWT_SECRET_KEY=your-jwt-secret-change-in-production
-DATABASE_URI=sqlite:///audionyx.db
-CORS_ORIGINS=http://localhost:3000,http://localhost:5173
-MODEL_PATH=models/deepfake_audio_detector.h5
-```
-
-### Frontend Configuration (`frontend/.env`)
-
-```env
-VITE_API_URL=http://localhost:5000
-VITE_SOCKET_URL=http://localhost:5000
-```
-
-## 📊 Key Files
-
-### Backend
-- [backend/run.py](backend/run.py) - Application entry point
-- [backend/app/__init__.py](backend/app/__init__.py) - Flask app factory
-- [backend/app/services/ml_inference.py](backend/app/services/ml_inference.py) - ML model integration
-- [backend/app/services/socket_handler.py](backend/app/services/socket_handler.py) - WebRTC signaling and events
-- [backend/app/routes/auth.py](backend/app/routes/auth.py) - Authentication endpoints
-
-### Frontend
-- [frontend/src/App.jsx](frontend/src/App.jsx) - Main app component
-- [frontend/src/hooks/useWebRTC.js](frontend/src/hooks/useWebRTC.js) - WebRTC call management
-- [frontend/src/hooks/useAudioProcessing.js](frontend/src/hooks/useAudioProcessing.js) - Audio chunk processing
-- [frontend/src/components/Call/CallInterface.jsx](frontend/src/components/Call/CallInterface.jsx) - Call UI
-- [frontend/src/components/Call/DeepfakeIndicator.jsx](frontend/src/components/Call/DeepfakeIndicator.jsx) - Detection display
-
-## 🛠️ Troubleshooting
-
-### Backend Issues
-
-**Issue**: `ModuleNotFoundError: No module named 'tensorflow'`
-- **Solution**: Activate virtual environment and reinstall dependencies
-```powershell
-.\venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-**Issue**: `Error loading model`
-- **Solution**: Model is optional. System runs in demo mode. To use real model, place `deepfake_audio_detector.h5` in `backend/models/`
-
-**Issue**: `FFmpeg not found`
-- **Solution**: Install FFmpeg (see Prerequisites section)
-
-### Frontend Issues
-
-**Issue**: `Cannot connect to Socket.io`
-- **Solution**: Ensure backend is running on port 5000
-- Check CORS settings in `backend/.env`
-
-**Issue**: `Microphone permission denied`
-- **Solution**: Grant microphone access in browser settings
-
-**Issue**: `WebRTC connection failed`
-- **Solution**: Check browser console for errors
-- Ensure both tabs are on same network
-
-## 🚀 Next Steps
-
-1. **Install dependencies** for both backend and frontend
-2. **Place your .h5 model** in `backend/models/` (optional - works in demo mode without it)
-3. **Start backend**: `cd backend && python run.py`
-4. **Start frontend**: `cd frontend && npm run dev` (in new terminal)
-5. **Open two browser tabs** and test the system
-6. **Customize preprocessing** in `ml_inference.py` to match your model's training
+*Client runs on `http://localhost:3000` (or `https` if configured)*
 
 ---
 
-**Built for real-time deepfake detection in audio calls**
+## Testing & Fraudster Mode
+
+### Standard Test
+1. Open `http://localhost:3000` in Chrome (User A).
+2. Open `http://localhost:3000` in an Incognito window or Firefox (User B).
+3. Register/Login both users.
+4. Call each other from the Dashboard.
+
+### Simulating a Fraudster
+To test the detection system without generating real deepfakes yourself:
+1. Register a user with the email: **`fraudster@test.com`**
+2. When this user calls anyone, the system **bypasses the microphone**.
+3. It automatically injects the `audio_files/test_deepfake.wav` (or similar) into the call.
+4. The recipient will hear the deepfake audio, and the detector should flag it as **High Risk**.
+
+---
+
+## Deployment (Public Access)
+
+### Option 1: Temporary Public Access (ngrok)
+To test on mobile devices or share with friends instantaneously:
+
+1. **Install ngrok**: [ngrok.com](https://ngrok.com)
+2. **Tunnel Backend**: `ngrok http 5000` -> Copy URL A
+3. **Tunnel Frontend**: `ngrok http https://localhost:3000` -> Copy URL B
+4. **Update Configs**:
+    - `backend/app/config.py`: Add URL B to `CORS_ORIGINS`.
+    - `frontend/.env.local`: Set `VITE_API_URL` and `VITE_SOCKET_URL` to URL A.
+
+### Option 2: Production Hosting (Free Tier)
+Due to the ML model size (268MB) and RAM requirements (~1GB+), standard free hosting (Render/Vercel) will crash.
+
+**Recommended Stack:**
+1.  **Backend**: **Hugging Face Spaces** (Docker SDK).
+    - Features: Free 16GB RAM, ideal for TensorFlow/Keras.
+    - Use the provided `Dockerfile` in `backend/`.
+2.  **Frontend**: **Vercel** or **Netlify**.
+    - Standard Vite React deployment.
+
+---
+
+## Troubleshooting
+
+- **Microphone Error**: Ensure you are using `http://localhost` or a secure `https://` connection (ngrok/production). Browsers block mic on insecure IPs.
+- **Model Not Found**: Ensure `deepfake_audio_detector_v2.h5` is in `backend/models/`. If missing, the app runs in "Demo Mode" (random predictions).
+- **TensorFlow Errors**: Ensure you have installed the C++ redistributables (Windows) and are using a compatible Python version (3.10 recommended).
+
+---
+
+**Audionyx** — *Protecting conversations in the age of AI.*

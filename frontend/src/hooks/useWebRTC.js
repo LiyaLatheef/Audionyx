@@ -1,21 +1,114 @@
 import { useState, useEffect, useRef } from 'react'
-import { ICE_SERVERS } from '../config'
+import { ICE_SERVERS, API_URL } from '../config'
 
-export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
+export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null) => {
   const [localStream, setLocalStream] = useState(null)
   const [remoteStream, setRemoteStream] = useState(null)
   const [isCallActive, setIsCallActive] = useState(false)
   const [callId, setCallId] = useState(null)
+  const [callStartTime, setCallStartTime] = useState(null)
   const [isCalling, setIsCalling] = useState(false)
   const [incomingCall, setIncomingCall] = useState(null)
-  const [isCaller, setIsCaller] = useState(false) // Track if current user is the caller
+  const [isCaller, setIsCaller] = useState(false)
 
   const peerConnection = useRef(null)
   const iceCandidatesQueue = useRef([])
+  const localStreamRef = useRef(null) // Ref to avoid stale closures
+  const fraudsterAudioRef = useRef(null)
+  const fraudsterMediaStreamRef = useRef(null)
+
+  // Helper to set stream in both state and ref
+  const updateLocalStream = (stream) => {
+    localStreamRef.current = stream
+    setLocalStream(stream)
+  }
+
+  // Create fraudster audio stream from pre-recorded file
+  // Uses HTMLAudioElement + createMediaElementSource for cross-device compatibility
+  // Audio is routed ONLY to the WebRTC stream, NOT to speakers
+  const createFraudsterAudioStream = async () => {
+    console.log('🎭 Creating fraudster audio stream...')
+
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+
+    try {
+      if (audioContext.state === 'suspended') {
+        await audioContext.resume()
+      }
+
+      // Create audio element
+      // Fetch from backend static folder
+      const audioUrl = `${API_URL}/static/fraudster_audio.wav`
+      const audio = new Audio(audioUrl)
+      audio.crossOrigin = 'anonymous'
+      audio.loop = true
+      audio.volume = 1.0 // Must be 1 so audio flows through Web Audio graph
+
+      // Create a MediaStream destination for WebRTC
+      const destination = audioContext.createMediaStreamDestination()
+
+      // Wait for audio to be loadable
+      await new Promise((resolve, reject) => {
+        audio.addEventListener('canplaythrough', resolve, { once: true })
+        audio.addEventListener('error', reject, { once: true })
+        audio.load()
+      })
+
+      // createMediaElementSource captures the element's output into the Web Audio graph
+      // After this call, the audio element no longer outputs to speakers directly
+      const source = audioContext.createMediaElementSource(audio)
+
+      // Route audio ONLY to the stream destination (for WebRTC)
+      source.connect(destination)
+
+      // *** DO NOT connect to audioContext.destination ***
+      // That line was causing local speaker playback!
+
+      // Start playback (drives audio through the Web Audio graph)
+      await audio.play()
+
+      // Store references for cleanup
+      fraudsterAudioRef.current = {
+        audio: audio,
+        context: audioContext,
+        close: () => {
+          try { audio.pause(); audio.src = '' } catch { }
+          try { audioContext.close() } catch { }
+        }
+      }
+      fraudsterMediaStreamRef.current = destination.stream
+
+      console.log('✅ Fraudster audio stream created successfully')
+      console.log('Stream tracks:', destination.stream.getTracks().map(t => t.kind + ':' + t.label))
+      return destination.stream
+
+    } catch (error) {
+      console.error('❌ Error creating fraudster audio stream:', error)
+      try { audioContext.close() } catch { }
+      throw error
+    }
+  }
 
   // Initialize local media stream
-  const initializeLocalStream = async () => {
+  const initializeLocalStream = async (userInfo = null) => {
     try {
+      console.log('🔍 Checking fraudster status. Email:', userInfo?.email)
+
+      const isFraudster = userInfo && userInfo.email === 'fraudster@test.com'
+
+      if (isFraudster) {
+        console.log('🎭 FRAUDSTER MODE ACTIVATED: Using pre-recorded audio')
+        try {
+          const fakeStream = await createFraudsterAudioStream()
+          updateLocalStream(fakeStream)
+          return fakeStream
+        } catch (fakeError) {
+          console.warn('⚠️ Fraudster audio failed, falling back to microphone:', fakeError)
+        }
+      }
+
+      // Normal user: get real microphone
+      console.log('🎤 Using real microphone')
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -24,7 +117,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
         },
         video: false
       })
-      setLocalStream(stream)
+      updateLocalStream(stream)
       return stream
     } catch (error) {
       console.error('Error accessing microphone:', error)
@@ -68,15 +161,13 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
   const startCall = async (targetUserId) => {
     try {
       setIsCalling(true)
-      setIsCaller(true) // Mark this user as the caller
+      setIsCaller(true)
 
-      // Get local stream if not already available
-      let stream = localStream
+      let stream = localStreamRef.current
       if (!stream) {
-        stream = await initializeLocalStream()
+        stream = await initializeLocalStream(userInfo)
       }
 
-      // Emit call request
       socket?.emit('call_user', {
         caller_id: currentUserId,
         callee_id: targetUserId
@@ -95,24 +186,21 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       setIncomingCall(null)
       setCallId(call.call_id)
       setIsCallActive(true)
-      setIsCaller(false) // Mark this user as the callee (receiver)
+      setIsCaller(false)
+      setCallStartTime(Date.now())
 
-      // Get local stream
-      let stream = localStream
+      let stream = localStreamRef.current
       if (!stream) {
-        stream = await initializeLocalStream()
+        stream = await initializeLocalStream(userInfo)
       }
 
-      // Create peer connection
       const pc = createPeerConnection(call.call_id)
       peerConnection.current = pc
 
-      // Add local tracks
       stream.getTracks().forEach(track => {
         pc.addTrack(track, stream)
       })
 
-      // Notify server
       socket?.emit('call_accepted', {
         call_id: call.call_id
       })
@@ -149,10 +237,24 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       setRemoteStream(null)
     }
 
+    // Stop fraudster audio if playing
+    if (fraudsterAudioRef.current) {
+      if (typeof fraudsterAudioRef.current.close === 'function') {
+        fraudsterAudioRef.current.close()
+      }
+      fraudsterAudioRef.current = null
+    }
+    if (fraudsterMediaStreamRef.current) {
+      fraudsterMediaStreamRef.current.getTracks().forEach(track => track.stop())
+      fraudsterMediaStreamRef.current = null
+    }
+
     setIsCallActive(false)
-    setIsCaller(false) // Reset caller status
+    setIsCaller(false)
     setCallId(null)
+    setCallStartTime(null)
     setIsCalling(false)
+    localStreamRef.current = null
     iceCandidatesQueue.current = []
   }
 
@@ -160,38 +262,37 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
   useEffect(() => {
     if (!socket) return
 
-    // Incoming call
     socket.on('incoming_call', (data) => {
       console.log('Incoming call from:', data.caller_id, data)
       setIncomingCall(data)
     })
 
-    // Call failed
     socket.on('call_failed', (data) => {
       console.error('Call failed:', data.message)
       alert(data.message || 'Call failed. User may be offline.')
       setIsCalling(false)
     })
 
-    // Call accepted
     socket.on('call_accepted', async (data) => {
       console.log('Call accepted:', data.call_id)
       setCallId(data.call_id)
       setIsCallActive(true)
       setIsCalling(false)
+      setCallStartTime(prev => prev ?? Date.now())
 
-      // Create peer connection and send offer
       const pc = createPeerConnection(data.call_id)
       peerConnection.current = pc
 
-      // Add local tracks
-      if (localStream) {
-        localStream.getTracks().forEach(track => {
-          pc.addTrack(track, localStream)
+      // Use ref to avoid stale closure
+      const stream = localStreamRef.current
+      if (stream) {
+        stream.getTracks().forEach(track => {
+          pc.addTrack(track, stream)
         })
+      } else {
+        console.warn('⚠️ No local stream available when call accepted!')
       }
 
-      // Create and send offer
       const offer = await pc.createOffer()
       await pc.setLocalDescription(offer)
 
@@ -201,32 +302,33 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       })
     })
 
-    // Call rejected
+    socket.on('call_started', (data) => {
+      if (!data?.call_id || !data?.started_at) return
+      setCallId(prev => prev || data.call_id)
+      setCallStartTime(data.started_at)
+    })
+
     socket.on('call_rejected', () => {
       console.log('Call rejected')
       setIsCalling(false)
       endCall()
     })
 
-    // Call ended
     socket.on('call_ended', () => {
       console.log('Call ended')
       endCall()
     })
 
-    // Receive offer
     socket.on('offer', async (data) => {
       console.log('Received offer')
       if (peerConnection.current) {
         await peerConnection.current.setRemoteDescription(data.offer)
 
-        // Process queued ICE candidates
         while (iceCandidatesQueue.current.length > 0) {
           const candidate = iceCandidatesQueue.current.shift()
           await peerConnection.current.addIceCandidate(candidate)
         }
 
-        // Create and send answer
         const answer = await peerConnection.current.createAnswer()
         await peerConnection.current.setLocalDescription(answer)
 
@@ -237,13 +339,11 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       }
     })
 
-    // Receive answer
     socket.on('answer', async (data) => {
       console.log('Received answer')
       if (peerConnection.current) {
         await peerConnection.current.setRemoteDescription(data.answer)
 
-        // Process queued ICE candidates
         while (iceCandidatesQueue.current.length > 0) {
           const candidate = iceCandidatesQueue.current.shift()
           await peerConnection.current.addIceCandidate(candidate)
@@ -251,14 +351,12 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       }
     })
 
-    // Receive ICE candidate
     socket.on('ice_candidate', async (data) => {
       if (peerConnection.current && data.candidate) {
         try {
           if (peerConnection.current.remoteDescription) {
             await peerConnection.current.addIceCandidate(data.candidate)
           } else {
-            // Queue candidates if remote description not set yet
             iceCandidatesQueue.current.push(data.candidate)
           }
         } catch (error) {
@@ -271,19 +369,20 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       socket.off('incoming_call')
       socket.off('call_failed')
       socket.off('call_accepted')
+      socket.off('call_started')
       socket.off('call_rejected')
       socket.off('call_ended')
       socket.off('offer')
       socket.off('answer')
       socket.off('ice_candidate')
     }
-  }, [socket, currentUserId, localStream])
+  }, [socket, currentUserId])
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop())
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop())
       }
       if (peerConnection.current) {
         peerConnection.current.close()
@@ -296,9 +395,10 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
     remoteStream,
     isCallActive,
     callId,
+    callStartTime,
     isCalling,
     incomingCall,
-    isCaller, // Export caller status
+    isCaller,
     startCall,
     acceptCall,
     rejectCall,
