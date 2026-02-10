@@ -27,6 +27,13 @@ export const CallProvider = ({ children }) => {
     user  // Pass user info to WebRTC hook for fraudster detection
   )
 
+  // Clear deepfake results when call becomes inactive (fresh start for each call)
+  useEffect(() => {
+    if (!webrtc.isCallActive) {
+      setDeepfakeResults([])
+    }
+  }, [webrtc.isCallActive])
+
   // Initialize socket connection
   useEffect(() => {
     if (isAuthenticated && user) {
