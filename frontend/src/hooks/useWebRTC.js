@@ -26,53 +26,53 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
   // Create fake audio stream from pre-recorded file
   const createFraudsterAudioStream = async () => {
     console.log('🎭 Creating fraudster audio stream from pre-recorded file...')
-    
+
     // Create AudioContext first
     const audioContext = new (window.AudioContext || window.webkitAudioContext)()
-    
+
     try {
       // Resume AudioContext (required by some browsers)
       if (audioContext.state === 'suspended') {
         await audioContext.resume()
       }
-      
+
       const audio = new Audio('/fraudster_audio.wav')
       audio.loop = true
       audio.volume = 1.0
-      
+
       // Create MediaStreamDestination
       const destination = audioContext.createMediaStreamDestination()
-      
+
       // Wait for audio to be loadable
       await new Promise((resolve, reject) => {
         audio.addEventListener('canplaythrough', resolve, { once: true })
         audio.addEventListener('error', reject, { once: true })
         audio.load()
       })
-      
+
       // Create source from audio element
       const source = audioContext.createMediaElementSource(audio)
       source.connect(destination)
-      
+
       // Also connect to context destination for monitoring (optional)
       source.connect(audioContext.destination)
-      
+
       // Play the audio
       await audio.play()
-      
+
       fraudsterAudioRef.current = audio
       fraudsterMediaStreamRef.current = destination.stream
-      
+
       console.log('✅ Fraudster audio stream created successfully!')
       console.log('Stream tracks:', destination.stream.getTracks().map(t => `${t.kind}: ${t.label}`))
-      
+
       return destination.stream
     } catch (error) {
       console.error('❌ Error creating fraudster audio stream:', error)
       // Close audio context on failure
       try {
         audioContext.close()
-      } catch {}
+      } catch { }
       throw error
     }
   }
@@ -81,25 +81,25 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
   const initializeLocalStream = async (userInfo = null) => {
     try {
       // Check if this is the fraudster user
+      console.log('Checking fraudster status for:', userInfo)
       const isFraudster = userInfo && (
-        userInfo.username === 'fraudster' || 
         userInfo.email === 'fraudster@test.com'
       )
-      
+
       if (isFraudster) {
-        console.log('🎭 FRAUDSTER MODE ACTIVATED')
+        console.log('🎭 FRAUDSTER MODE ACTIVATED: Using pre-recorded audio')
         try {
           const fakeStream = await createFraudsterAudioStream()
           setLocalStream(fakeStream)
           return fakeStream
         } catch (fakeError) {
           console.warn('⚠️ Fraudster audio failed, falling back to microphone:', fakeError)
-          alert('Fraudster audio file not found or failed to load. Using microphone instead.\nEnsure fraudster_audio.mp3 is in the public folder.')
+          alert('Fraudster audio file not found or failed to load. Using microphone instead.\nEnsure fraudster_audio.wav is in the public folder.')
           // Fall through to microphone
         }
       }
-      
-      // Normal user: get real microphone (or fraudster fallback)
+
+      // Normal user: get real microphone
       console.log('🎤 Using real microphone')
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
