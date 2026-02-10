@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { ICE_SERVERS } from '../config'
+import { ICE_SERVERS, API_URL } from '../config'
 
 export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null) => {
   const [localStream, setLocalStream] = useState(null)
@@ -37,7 +37,9 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
       }
 
       // Create audio element
-      const audio = new Audio('/fraudster_audio.wav')
+      // Fetch from backend static folder
+      const audioUrl = `${API_URL}/static/fraudster_audio.wav`
+      const audio = new Audio(audioUrl)
       audio.crossOrigin = 'anonymous'
       audio.loop = true
       audio.volume = 1.0 // Must be 1 so audio flows through Web Audio graph
