@@ -97,12 +97,6 @@ const CallInterface = ({ remoteUser }) => {
           </div>
         )}
 
-        {isCaller && (
-          <div className="caller-note">
-            <p>Waiting for analysis...</p>
-          </div>
-        )}
-
         <div className="call-actions">
           <button onClick={handleEndCall} className="btn-end-call" aria-label="End Call">
             <svg viewBox="0 0 24 24" width="32" height="32" fill="currentColor">
