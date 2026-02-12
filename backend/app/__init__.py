@@ -53,6 +53,12 @@ def create_app(config_name='default'):
     with app.app_context():
         db.create_all()
         
+        # Reset all users to offline on startup (clears stale flags from previous sessions)
+        from app.models.user import User
+        User.query.update({User.is_online: False})
+        db.session.commit()
+        logger.info("Reset all users to offline on startup")
+        
         # Initialize ML model
         from app.services.ml_inference import init_model
         model_loaded = init_model(app.config['MODEL_PATH'])
