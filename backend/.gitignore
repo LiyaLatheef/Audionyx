@@ -8,14 +8,15 @@ venv/
 ENV/
 .env
 .venv
-*.db
+
 *.log
-instance/
 .pytest_cache/
 .coverage
 htmlcov/
 dist/
 build/
 *.egg-info/
+
+instance/audionyx.db
 models/*.h5
 !models/.gitkeep

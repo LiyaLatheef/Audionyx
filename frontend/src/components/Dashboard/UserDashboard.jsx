@@ -64,7 +64,7 @@ const UserDashboard = () => {
             {onlineUsers.length === 0 ? (
               <div className="no-users">
                 <p>No other users online</p>
-                <p className="hint">Open another browser tab (incognito) and login with a different account</p>
+
               </div>
             ) : (
               <div className="users-list">

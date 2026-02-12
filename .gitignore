@@ -1,6 +1,5 @@
 # Model files (too large for GitHub)
 *.h5
-deepfake_audio_detector.h5
 
 # Python
 __pycache__/
@@ -14,10 +13,7 @@ ENV/
 .env
 .venv
 
-# Database
-*.db
-*.sqlite
-*.sqlite3
+
 
 # Logs
 *.log

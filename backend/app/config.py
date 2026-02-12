@@ -20,7 +20,7 @@ class Config:
     # CORS
     CORS_ORIGINS = os.getenv(
         'CORS_ORIGINS',
-        'http://localhost:3000,http://localhost:3001,http://localhost:5173'
+        'http://localhost:3000,https://localhost:3000,http://10.174.164.32:3000,https://10.174.164.32:3000,http://127.0.0.1:3000'
     ).split(',')
     
     # ML Model configuration
@@ -35,7 +35,7 @@ class Config:
     CHUNK_SIZE = 2000  # milliseconds
     
     # Socket.io
-    SOCKETIO_CORS_ALLOWED_ORIGINS = CORS_ORIGINS
+    SOCKETIO_CORS_ALLOWED_ORIGINS = '*'
     SOCKETIO_ASYNC_MODE = None  # Auto-detect best async mode
 
 class DevelopmentConfig(Config):

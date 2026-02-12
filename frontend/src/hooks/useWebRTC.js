@@ -94,7 +94,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
     try {
       console.log('🔍 Checking fraudster status. Email:', userInfo?.email)
 
-      const isFraudster = userInfo && userInfo.email === 'fraudster@test.com'
+      const isFraudster = userInfo && userInfo.email === 'gautham@gmail.com'
 
       if (isFraudster) {
         console.log('🎭 FRAUDSTER MODE ACTIVATED: Using pre-recorded audio')
