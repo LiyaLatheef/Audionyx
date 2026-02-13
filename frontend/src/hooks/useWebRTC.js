@@ -38,7 +38,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
 
       // Create audio element
       // Fetch from backend static folder
-      const audioUrl = `${API_URL}/static/fraudster_audio.wav`
+      const audioUrl = `${API_URL}/static/fraudster_audio5.wav`
       const audio = new Audio(audioUrl)
       audio.crossOrigin = 'anonymous'
       audio.loop = true
