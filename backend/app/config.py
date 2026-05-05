@@ -20,7 +20,7 @@ class Config:
     # CORS
     CORS_ORIGINS = os.getenv(
         'CORS_ORIGINS',
-        'http://localhost:3000,https://localhost:3000,http://10.174.164.32:3000,https://10.174.164.32:3000,http://127.0.0.1:3000'
+        'http://localhost:3000,https://localhost:3000,http://172.20.10.2:3000,https://172.20.10.2:3000,http://172.20.10.2:3001,https://172.20.10.2:3001,http://192.168.137.1:3000,https://192.168.137.1:3000,http://192.168.137.1:3001,https://192.168.137.1:3001,http://127.0.0.1:3000'
     ).split(',')
     
     # ML Model configuration
@@ -43,8 +43,7 @@ class DevelopmentConfig(Config):
     DEBUG = True
     FLASK_ENV = 'development'
     # eventlet is unreliable on Windows; threading is the most stable option for local dev.
-    # SOCKETIO_ASYNC_MODE = 'threading' 
-    SOCKETIO_ASYNC_MODE = None # Auto-detect (likely eventlet)
+    SOCKETIO_ASYNC_MODE = 'threading'
 
 class ProductionConfig(Config):
     """Production configuration"""

@@ -23,8 +23,7 @@ export const CallProvider = ({ children }) => {
   const webrtc = useWebRTC(
     socket,
     user?.id,
-    (stream) => setRemoteStreamState(stream),
-    user  // Pass user info to WebRTC hook for fraudster detection
+    (stream) => setRemoteStreamState(stream)
   )
 
   // Clear deepfake results when call becomes inactive (fresh start for each call)

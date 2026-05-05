@@ -62,7 +62,23 @@ const CallInterface = ({ remoteUser }) => {
 
   useEffect(() => {
     if (remoteStream && remoteAudioRef.current) {
+      console.log('🎵 Setting remote stream to audio element')
+      console.log('Remote stream tracks:', remoteStream.getTracks().map(t => `${t.kind}:${t.enabled}`))
+      
       remoteAudioRef.current.srcObject = remoteStream
+      
+      // Explicitly play the audio - autoPlay attribute doesn't work with dynamic srcObject in React
+      remoteAudioRef.current.play()
+        .then(() => {
+          console.log('✅ Remote audio started playing')
+        })
+        .catch(err => {
+          console.error('❌ Failed to play remote audio:', err.message)
+          // Try to play again after a short delay (sometimes helps with autoplay policies)
+          setTimeout(() => {
+            remoteAudioRef.current?.play().catch(e => console.error('❌ Still failed to play:', e.message))
+          }, 1000)
+        })
     }
   }, [remoteStream])
 
@@ -73,7 +89,13 @@ const CallInterface = ({ remoteUser }) => {
   return (
     <div className="call-interface">
       {/* Audio elements (hidden) */}
-      <audio ref={remoteAudioRef} autoPlay playsInline />
+      <audio 
+        ref={remoteAudioRef} 
+        autoPlay 
+        playsInline 
+        muted={false}
+        style={{ display: 'none' }}
+      />
 
       <div className="call-content">
         <div className="call-info">

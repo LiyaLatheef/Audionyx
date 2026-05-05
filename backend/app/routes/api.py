@@ -1,12 +1,19 @@
 """
 API Routes
 """
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, send_from_directory
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app import db
 from app.models.user import User
+import os
 
 api_bp = Blueprint('api', __name__)
+
+@api_bp.route('/static/<path:filename>')
+def serve_static(filename):
+    """Serve static files"""
+    static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'static')
+    return send_from_directory(static_dir, filename)
 
 @api_bp.route('/users/online', methods=['GET'])
 @jwt_required()

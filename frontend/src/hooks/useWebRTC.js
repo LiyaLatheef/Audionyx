@@ -1,7 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { ICE_SERVERS, API_URL } from '../config'
+import { useAuth } from '../context/AuthContext'
 
-export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null) => {
+export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
+  const { user } = useAuth() // Get user directly from AuthContext
+  
+  // Debug user object
+  useEffect(() => {
+    console.log('🔍 [HOOK INIT] useWebRTC user object:', user)
+    console.log('🔍 [HOOK INIT] useWebRTC user username:', user?.username)
+    console.log('🔍 [HOOK INIT] useWebRTC user email:', user?.email)
+  }, [user])
   const [localStream, setLocalStream] = useState(null)
   const [remoteStream, setRemoteStream] = useState(null)
   const [isCallActive, setIsCallActive] = useState(false)
@@ -24,10 +33,10 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
   }
 
   // Create fraudster audio stream from pre-recorded file
-  // Uses HTMLAudioElement + createMediaElementSource for cross-device compatibility
-  // Audio is routed ONLY to the WebRTC stream, NOT to speakers
+  // ONLY used for the fraudster account (Gautham)
+  // Uses Web Audio API to decode and play audio through MediaStreamDestination
   const createFraudsterAudioStream = async () => {
-    console.log('🎭 Creating fraudster audio stream...')
+    console.log('🎭 Creating fraudster audio stream for Gautham...')
 
     const audioContext = new (window.AudioContext || window.webkitAudioContext)()
 
@@ -36,79 +45,93 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
         await audioContext.resume()
       }
 
-      // Create audio element
-      // Fetch from backend static folder
-      const audioUrl = `${API_URL}/static/fraudster_audio5.wav`
-      const audio = new Audio(audioUrl)
-      audio.crossOrigin = 'anonymous'
-      audio.loop = true
-      audio.volume = 1.0 // Must be 1 so audio flows through Web Audio graph
-
-      // Create a MediaStream destination for WebRTC
+      // Fetch the audio file
+      const audioUrl = `http://localhost:5000/api/static/fraudster_audio.wav` // Direct backend URL
+      console.log('Fetching fraudster audio from:', audioUrl)
+      
+      const response = await fetch(audioUrl)
+      console.log('Fetch response status:', response.status)
+      if (!response.ok) {
+        throw new Error(`Failed to fetch audio: ${response.status}`)
+      }
+      
+      const arrayBuffer = await response.arrayBuffer()
+      console.log('Audio file size:', arrayBuffer.byteLength, 'bytes')
+      
+      // Decode the audio data
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+      
+      // Create a MediaStream destination
       const destination = audioContext.createMediaStreamDestination()
-
-      // Wait for audio to be loadable
-      await new Promise((resolve, reject) => {
-        audio.addEventListener('canplaythrough', resolve, { once: true })
-        audio.addEventListener('error', reject, { once: true })
-        audio.load()
-      })
-
-      // createMediaElementSource captures the element's output into the Web Audio graph
-      // After this call, the audio element no longer outputs to speakers directly
-      const source = audioContext.createMediaElementSource(audio)
-
-      // Route audio ONLY to the stream destination (for WebRTC)
+      
+      // Create a buffer source
+      const source = audioContext.createBufferSource()
+      source.buffer = audioBuffer
+      source.loop = true
+      
+      // Connect to destination
       source.connect(destination)
-
-      // *** DO NOT connect to audioContext.destination ***
-      // That line was causing local speaker playback!
-
-      // Start playback (drives audio through the Web Audio graph)
-      await audio.play()
-
+      
+      // Start playback
+      source.start(0)
+      
       // Store references for cleanup
       fraudsterAudioRef.current = {
-        audio: audio,
+        source: source,
         context: audioContext,
         close: () => {
-          try { audio.pause(); audio.src = '' } catch { }
+          try { source.stop() } catch { }
           try { audioContext.close() } catch { }
         }
       }
       fraudsterMediaStreamRef.current = destination.stream
 
-      console.log('✅ Fraudster audio stream created successfully')
-      console.log('Stream tracks:', destination.stream.getTracks().map(t => t.kind + ':' + t.label))
+      console.log('✅ Fraudster audio stream created successfully for Gautham')
+      console.log('Stream tracks:', destination.stream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`))
       return destination.stream
 
     } catch (error) {
-      console.error('❌ Error creating fraudster audio stream:', error)
+      console.error('❌ Error creating fraudster audio stream for Gautham:', error)
       try { audioContext.close() } catch { }
       throw error
     }
   }
 
   // Initialize local media stream
-  const initializeLocalStream = async (userInfo = null) => {
+  const initializeLocalStream = async () => {
     try {
-      console.log('🔍 Checking fraudster status. Email:', userInfo?.email)
+      console.log('🔍 [START] initializeLocalStream called')
+      console.log('🔍 Current user from AuthContext:', user)
+      console.log('🔍 User object keys:', user ? Object.keys(user) : 'NO USER')
+      console.log('🔍 User object values:', user ? Object.values(user) : 'NO USER')
 
-      const isFraudster = userInfo && userInfo.email === 'gautham@gmail.com'
+      // Check if the LOCAL user is the fraudster - if so, ALWAYS send deepfake audio
+      const isFraudster = user && (
+        (user.email && user.email.toLowerCase() === 'gautham@gmail.com') ||
+        (user.username && (user.username.toLowerCase() === 'gautham' || user.username === 'Gautham'))
+      )
+      console.log('🔍 [DETECTION] isFraudster (local user):', isFraudster)
 
       if (isFraudster) {
-        console.log('🎭 FRAUDSTER MODE ACTIVATED: Using pre-recorded audio')
+        console.log('🎭 [FRAUDSTER] DETECTED! LOCAL user is fraudster - ALWAYS sending deepfake audio')
+        console.log('🎭 FRAUDSTER MODE ACTIVATED: User', user?.username, 'will send pre-recorded deepfake audio to everyone')
+        console.log('🎭 All other users will send live microphone audio')
+        console.log('🎭 [FRAUDSTER] About to call createFraudsterAudioStream()...')
         try {
+          console.log('🎭 [FRAUDSTER] Attempting to create fraudster audio stream...')
           const fakeStream = await createFraudsterAudioStream()
+          console.log('🎭 [FRAUDSTER] Fraudster stream created successfully:', fakeStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`))
           updateLocalStream(fakeStream)
+          console.log('🎭 [FRAUDSTER] Local stream updated to fraudster audio - returning fraudster stream')
           return fakeStream
         } catch (fakeError) {
-          console.warn('⚠️ Fraudster audio failed, falling back to microphone:', fakeError)
+          console.error('⚠️ [FRAUDSTER] Fraudster audio creation FAILED:', fakeError)
+          console.warn('⚠️ [FRAUDSTER] Falling back to microphone audio due to fraudster audio failure')
         }
       }
 
       // Normal user: get real microphone
-      console.log('🎤 Using real microphone')
+      console.log('🎤 [NORMAL] REMOTE user is not fraudster - sending live microphone audio')
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
@@ -117,7 +140,9 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
         },
         video: false
       })
+      console.log('🎤 [NORMAL] Microphone stream tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`))
       updateLocalStream(stream)
+      console.log('🎤 [NORMAL] Local stream updated to microphone audio - returning microphone stream')
       return stream
     } catch (error) {
       console.error('Error accessing microphone:', error)
@@ -140,15 +165,24 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
     }
 
     pc.ontrack = (event) => {
-      console.log('Received remote track')
-      setRemoteStream(event.streams[0])
-      if (onRemoteStream) {
-        onRemoteStream(event.streams[0])
+      console.log('Received remote track:', event.track.kind, event.track.enabled, event.track.readyState)
+      console.log('Remote streams:', event.streams.length)
+      if (event.streams[0]) {
+        console.log('Remote stream tracks:', event.streams[0].getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`))
+        // Ensure remote tracks are enabled
+        event.streams[0].getTracks().forEach(track => {
+          track.enabled = true
+        })
+        setRemoteStream(event.streams[0])
+        if (onRemoteStream) {
+          onRemoteStream(event.streams[0])
+        }
       }
     }
 
     pc.oniceconnectionstatechange = () => {
       console.log('ICE connection state:', pc.iceConnectionState)
+      console.log('Peer connection state:', pc.connectionState)
       if (pc.iceConnectionState === 'disconnected' || pc.iceConnectionState === 'failed') {
         endCall()
       }
@@ -165,7 +199,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
 
       let stream = localStreamRef.current
       if (!stream) {
-        stream = await initializeLocalStream(userInfo)
+        stream = await initializeLocalStream()
       }
 
       socket?.emit('call_user', {
@@ -191,13 +225,15 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
 
       let stream = localStreamRef.current
       if (!stream) {
-        stream = await initializeLocalStream(userInfo)
+        stream = await initializeLocalStream()
       }
 
       const pc = createPeerConnection(call.call_id)
       peerConnection.current = pc
 
+      console.log('Local stream for callee:', stream?.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`))
       stream.getTracks().forEach(track => {
+        track.enabled = true // Ensure track is enabled
         pc.addTrack(track, stream)
       })
 
@@ -286,7 +322,9 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream, userInfo = null
       // Use ref to avoid stale closure
       const stream = localStreamRef.current
       if (stream) {
+        console.log('Adding local tracks to peer connection:', stream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`))
         stream.getTracks().forEach(track => {
+          track.enabled = true // Ensure track is enabled
           pc.addTrack(track, stream)
         })
       } else {
