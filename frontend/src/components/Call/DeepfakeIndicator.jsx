@@ -26,14 +26,14 @@ const DeepfakeIndicator = () => {
   // Color based on fraud probability
   // Low fraud = Green, Medium = Orange, High = Red
   const getColor = () => {
-    if (confidence < 0.3) return '#4cd964' // Safe
+    if (confidence < 0.4) return '#4cd964' // Safe
     if (confidence < 0.7) return '#ffcc00' // Warning
     return '#ff3b30' // Danger
   }
 
   const getStatusText = () => {
     if (!latestResult) return 'Analyzing...'
-    if (confidence < 0.3) return 'Authentic'
+    if (confidence < 0.4) return 'Authentic'
     if (confidence < 0.7) return 'Suspicious'
     return 'Deepfake Detected'
   }
