@@ -46,7 +46,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       }
 
       // Fetch the audio file
-      const audioUrl = `http://localhost:5000/api/static/fraudster_audio.wav` // Direct backend URL
+      const audioUrl = `http://localhost:5000/api/static/fraudster_audio5.wav` // Direct backend URL
       console.log('Fetching fraudster audio from:', audioUrl)
       
       const response = await fetch(audioUrl)
