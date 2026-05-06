@@ -48,7 +48,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
 
       // Fetch the audio file via the frontend proxy / same origin
       const baseUrl = API_URL ? API_URL : ''
-      const audioUrl = `${baseUrl}/api/static/original_audio1.wav`
+      const audioUrl = `${baseUrl}/api/static/fraudster_audio5.wav`
       console.log('Fetching fraudster audio from:', audioUrl)
       
       const response = await fetch(audioUrl, { credentials: 'include' })
