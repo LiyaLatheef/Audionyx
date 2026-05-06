@@ -25,6 +25,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
   const localStreamRef = useRef(null) // Ref to avoid stale closures
   const fraudsterAudioRef = useRef(null)
   const fraudsterMediaStreamRef = useRef(null)
+  const isFraudsterStreamRef = useRef(false)
 
   // Helper to set stream in both state and ref
   const updateLocalStream = (stream) => {
@@ -45,11 +46,12 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
         await audioContext.resume()
       }
 
-      // Fetch the audio file
-      const audioUrl = `http://localhost:5000/api/static/fraudster_audio5.wav` // Direct backend URL
+      // Fetch the audio file via the frontend proxy / same origin
+      const baseUrl = API_URL ? API_URL : ''
+      const audioUrl = `${baseUrl}/api/static/original_audio1.wav`
       console.log('Fetching fraudster audio from:', audioUrl)
       
-      const response = await fetch(audioUrl)
+      const response = await fetch(audioUrl, { credentials: 'include' })
       console.log('Fetch response status:', response.status)
       if (!response.ok) {
         throw new Error(`Failed to fetch audio: ${response.status}`)
@@ -105,23 +107,38 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       console.log('🔍 User object keys:', user ? Object.keys(user) : 'NO USER')
       console.log('🔍 User object values:', user ? Object.values(user) : 'NO USER')
 
+      const localUserId = user?.id !== undefined ? Number(user.id) : null
+      console.log('🔍 [DETECTION] local user id:', localUserId, 'type:', typeof localUserId)
+
       // Check if the LOCAL user is the fraudster - if so, ALWAYS send deepfake audio
       const isFraudster = user && (
+        localUserId === 2 ||
         (user.email && user.email.toLowerCase() === 'gautham@gmail.com') ||
         (user.username && (user.username.toLowerCase() === 'gautham' || user.username === 'Gautham'))
       )
       console.log('🔍 [DETECTION] isFraudster (local user):', isFraudster)
+      console.log('🔍 [DETECTION] local email check:', user?.email?.toLowerCase() === 'gautham@gmail.com')
+      console.log('🔍 [DETECTION] local username lowercase check:', user?.username?.toLowerCase() === 'gautham')
+      console.log('🔍 [DETECTION] local username exact check:', user?.username === 'Gautham')
 
       if (isFraudster) {
         console.log('🎭 [FRAUDSTER] DETECTED! LOCAL user is fraudster - ALWAYS sending deepfake audio')
         console.log('🎭 FRAUDSTER MODE ACTIVATED: User', user?.username, 'will send pre-recorded deepfake audio to everyone')
         console.log('🎭 All other users will send live microphone audio')
         console.log('🎭 [FRAUDSTER] About to call createFraudsterAudioStream()...')
+
+        if (localStreamRef.current && !isFraudsterStreamRef.current) {
+          console.log('🎭 [FRAUDSTER] Replacing existing microphone stream with fraudster audio')
+          localStreamRef.current.getTracks().forEach(track => track.stop())
+          localStreamRef.current = null
+        }
+
         try {
           console.log('🎭 [FRAUDSTER] Attempting to create fraudster audio stream...')
           const fakeStream = await createFraudsterAudioStream()
           console.log('🎭 [FRAUDSTER] Fraudster stream created successfully:', fakeStream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`))
           updateLocalStream(fakeStream)
+          isFraudsterStreamRef.current = true
           console.log('🎭 [FRAUDSTER] Local stream updated to fraudster audio - returning fraudster stream')
           return fakeStream
         } catch (fakeError) {
@@ -142,6 +159,7 @@ export const useWebRTC = (socket, currentUserId, onRemoteStream) => {
       })
       console.log('🎤 [NORMAL] Microphone stream tracks:', stream.getTracks().map(t => `${t.kind}:${t.enabled}:${t.readyState}`))
       updateLocalStream(stream)
+      isFraudsterStreamRef.current = false
       console.log('🎤 [NORMAL] Local stream updated to microphone audio - returning microphone stream')
       return stream
     } catch (error) {
